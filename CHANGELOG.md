@@ -15,6 +15,13 @@
 - 修正 `User` 结构体 `xrom` 标签拼写错误，账号名建立唯一索引。
 - 移除 macaron 及其 session/csrf/captcha/cache 依赖，改用标准库 `net/http`（Go 1.22+ 路由）。
 
+### 修复
+
+- **AI 配置保存一次后无法再修改**：`setting` 表的 `Set` 用 `Insert` 写入，第二次保存同键会撞主键
+  （`Error 1062 Duplicate entry`），前端表现为"改不动"。改为「先更新，未命中再插入；并发撞主键退化为更新」，
+  并新增 `internal/repository/mysql/setting_test.go`（`WAF_TEST_MYSQL_DSN` 存在时连真实库验证连续覆盖）
+  与 `internal/service/ai_test.go`（反复保存、掩码保留密钥、默认值裁剪、非法配置校验）。
+
 ### 新增功能
 
 - **命令行重置账号口令**：`wafadmin reset-password -config conf/app.ini [-user admin] [-password xxx] [-create]`

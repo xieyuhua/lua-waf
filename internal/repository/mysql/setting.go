@@ -51,16 +51,33 @@ func (r *settingRepo) Get(ctx context.Context, key string) (string, bool, error)
 	return item.ConfigValue, true, nil
 }
 
-// Set 写入或覆盖配置项。
+// Set 写入或覆盖配置项（先更新，未命中再插入；并发撞主键时退化为更新）。
 func (r *settingRepo) Set(ctx context.Context, key, value string) error {
-	defer r.observer.Trace(ctx, "setting.set", "REPLACE INTO setting (config_key, config_value) VALUES (?, ?)")()
+	defer r.observer.Trace(ctx, "setting.set", "UPDATE setting SET config_value = ? WHERE config_key = ?")()
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 
-	item := &model.Setting{ConfigKey: key, ConfigValue: value}
-	_, err := r.engine.Insert(item)
-	return err
+	affected, err := r.engine.Table(new(model.Setting)).
+		Where("config_key = ?", key).
+		Update(&model.Setting{ConfigValue: value})
+	if err != nil {
+		return err
+	}
+	if affected > 0 {
+		return nil
+	}
+
+	// 记录不存在：插入；并发下可能已被别的请求插入，失败时再更新一次
+	if _, insertErr := r.engine.Insert(&model.Setting{ConfigKey: key, ConfigValue: value}); insertErr != nil {
+		if retry, retryErr := r.engine.Table(new(model.Setting)).
+			Where("config_key = ?", key).
+			Update(&model.Setting{ConfigValue: value}); retryErr == nil && retry > 0 {
+			return nil
+		}
+		return insertErr
+	}
+	return nil
 }
 
 // Delete 删除配置项。
