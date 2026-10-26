@@ -26,6 +26,7 @@ type Deps struct {
 	Sync      *service.SyncService
 	Settings  *service.SettingService
 	SysConfig *service.SystemConfigService
+	LuaConfig *service.LuaConfigService
 }
 
 // Routes 提供统一的中间件包装器，各 handler 按需使用。
@@ -84,6 +85,7 @@ func (s *Server) register(mux *http.ServeMux) {
 	(&MapHandler{Map: s.Deps.Map, Responder: Responder{Writer: s.Writer}}).Register(mux, routes)
 	(&SystemHandler{Cfg: s.Cfg, Rules: s.Deps.Rules, Settings: s.Deps.Settings, FrontendVersion: s.frontendVersion(), Responder: Responder{Writer: s.Writer}}).Register(mux, routes)
 	(&SysConfigHandler{SysConfig: s.Deps.SysConfig, Writer: s.Writer, Responder: Responder{Writer: s.Writer}}).Register(mux, routes)
+	(&LuaConfigHandler{Lua: s.Deps.LuaConfig, Writer: s.Writer, Responder: Responder{Writer: s.Writer}}).Register(mux, routes)
 	(&SyncHandler{Sync: s.Deps.Sync, Sites: s.Deps.Sites, Rules: s.Deps.Rules, Writer: s.Writer}).Register(mux)
 
 	// 前端单页应用：未匹配到 API 的路径全部回落到 index.html

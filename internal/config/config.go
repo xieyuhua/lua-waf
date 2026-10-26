@@ -70,6 +70,10 @@ type Config struct {
 	RulePath    string
 	SSLCertDir  string
 	WafLogDir   string
+	// MapTarget 为攻击地图的「防护目标」位置（地区文本，如 中国-北京），用于绘制攻击箭头。
+	MapTarget string
+	// LuaConfigPath 为 lua-waf 的 config.lua 路径（后台可在线修改）。
+	LuaConfigPath string
 
 	PageSize int
 
@@ -166,6 +170,8 @@ func (l *Loader) defaults() *Config {
 		RulePath:         "/usr/local/openresty/nginx/conf/waf/rules/",
 		SSLCertDir:       "/www/server/panel/vhost/cert",
 		WafLogDir:        "/www/wwwlogs/waf",
+		MapTarget:        "中国-北京",
+		LuaConfigPath:    "/www/server/nginx/x-waf/config.lua",
 		PageSize:         10,
 		SessionTTL:       12 * time.Hour,
 		CaptchaTTL:       5 * time.Minute,
@@ -195,6 +201,8 @@ func (l *Loader) applyINI(cfg *Config, file *ini.File) {
 	waf := file.Section("waf")
 	cfg.RulePath = ensureTrailingSlash(waf.Key("RULE_PATH").MustString(cfg.RulePath))
 	cfg.WafLogDir = waf.Key("LOG_DIR").MustString(cfg.WafLogDir)
+	cfg.MapTarget = waf.Key("MAP_TARGET").MustString(cfg.MapTarget)
+	cfg.LuaConfigPath = waf.Key("LUA_CONFIG").MustString(cfg.LuaConfigPath)
 
 	if ms := file.Section("monitor").Key("SLOW_SQL_MS").MustInt(int(cfg.SlowSQLThreshold.Milliseconds())); ms > 0 {
 		cfg.SlowSQLThreshold = time.Duration(ms) * time.Millisecond
@@ -257,6 +265,12 @@ func (l *Loader) applyEnv(cfg *Config) {
 	}
 	if v := l.env("WAF_DB_NAME"); v != "" {
 		cfg.Database.Name = v
+	}
+	if v := l.env("WAF_MAP_TARGET"); v != "" {
+		cfg.MapTarget = v
+	}
+	if v := l.env("WAF_LUA_CONFIG"); v != "" {
+		cfg.LuaConfigPath = v
 	}
 	if v := l.env("WAF_DB_SHOW_SQL"); v != "" {
 		cfg.Database.ShowSQL = parseToggle(v)

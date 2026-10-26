@@ -46,73 +46,169 @@ const points = computed(() =>
   (snapshot.value?.points ?? []).filter((item) => item.lat !== 0 || item.lon !== 0)
 )
 
-const palette = computed(() => themeStore.chartPalette.value)
+/** 攻击来源 Top N（用于绘制箭头，避免线条过多） */
+const arrowPoints = computed(() => points.value.slice(0, 12))
 
-const mapOption = computed(() => ({
-  backgroundColor: 'transparent',
-  tooltip: {
-    trigger: 'item',
-    backgroundColor: 'rgba(9,15,28,0.92)',
-    borderColor: 'rgba(99,102,241,0.5)',
-    textStyle: { color: '#e2e8f0', fontSize: 12 },
-    formatter: (params) => {
-      const value = params.value || []
-      return `<strong>${params.name}</strong><br/>攻击次数：${value[2] ?? 0}<br/>来源：${params.data?.area || '-'}<br/>类型：${
-        (params.data?.attack_types || []).join('、') || '-'
-      }`
-    }
-  },
-  geo: {
-    map: 'world',
-    roam: false,
-    zoom: 1.05,
-    center: [12, 18],
-    itemStyle: {
-      areaColor: 'rgba(23,35,58,0.9)',
-      borderColor: 'rgba(99,102,241,0.35)',
-      borderWidth: 0.6
-    },
-    emphasis: {
-      itemStyle: { areaColor: 'rgba(99,102,241,0.35)' },
-      label: { show: false }
-    },
-    silent: true
-  },
-  series: [
-    {
-      name: '攻击来源',
-      type: 'effectScatter',
-      coordinateSystem: 'geo',
-      rippleEffect: { brushType: 'stroke', scale: 3.2, period: 4 },
-      symbolSize: (value) => Math.min(6 + Math.sqrt(value[2] || 1) * 2, 26),
-      itemStyle: { color: '#f97316', shadowBlur: 14, shadowColor: 'rgba(249,115,22,0.85)' },
-      label: {
-        show: true,
-        position: 'right',
-        formatter: '{b}',
-        color: '#cbd5e1',
-        fontSize: 10
-      },
-      data: points.value.map((item) => ({
+const palette = computed(() => themeStore.chartPalette.value)
+const dark = computed(() => themeStore.dark.value)
+
+/** 状态与目标 */
+const status = computed(() => snapshot.value?.status ?? { level: 'normal', message: '暂无数据', today_count: 0, window_count: 0 })
+const target = computed(() => snapshot.value?.target ?? null)
+const statusText = computed(() => {
+  const level = status.value.level
+  if (level === 'high') return '高危'
+  if (level === 'elevated') return '告警'
+  return '正常'
+})
+
+/** 随主题变化的配色 */
+const colors = computed(() => {
+  const isDark = dark.value
+  return {
+    area: isDark ? 'rgba(23,35,58,0.92)' : '#e9eefb',
+    areaHover: isDark ? 'rgba(99,102,241,0.42)' : 'rgba(99,102,241,0.24)',
+    border: isDark ? 'rgba(99,102,241,0.32)' : 'rgba(99,102,241,0.28)',
+    label: isDark ? '#cbd5e1' : '#475569',
+    axis: isDark ? 'rgba(148,163,184,0.35)' : 'rgba(100,116,139,0.3)',
+    tooltipBg: isDark ? 'rgba(9,15,28,0.94)' : 'rgba(255,255,255,0.96)',
+    tooltipText: isDark ? '#e2e8f0' : '#1f2937'
+  }
+})
+
+/** 世界地图 + 攻击箭头（来源 → 防护目标） */
+const mapOption = computed(() => {
+  const theme = colors.value
+  const accent = palette.value.primary
+  const accent2 = palette.value.accent
+
+  const targetPoint = target.value
+  const arrowData = targetPoint
+    ? arrowPoints.value.map((item) => ({
         name: item.name,
-        value: [item.lon, item.lat, item.count],
-        area: item.area,
-        attack_types: item.attack_types
+        coords: [
+          [item.lon, item.lat],
+          [targetPoint.lon, targetPoint.lat]
+        ],
+        value: item.count,
+        area: item.area
       }))
-    }
-  ]
-}))
+    : []
+
+  return {
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'item',
+      backgroundColor: theme.tooltipBg,
+      borderColor: 'rgba(99,102,241,0.45)',
+      textStyle: { color: theme.tooltipText, fontSize: 12 },
+      formatter: (params) => {
+        if (params.seriesName === '攻击链路') {
+          return `<strong>${params.name} → ${targetPoint?.name || '防护目标'}</strong><br/>攻击次数：${params.data?.value ?? 0}`
+        }
+        if (params.seriesName === '防护目标') {
+          return `<strong>${targetPoint?.name}</strong><br/>位置：${targetPoint?.area || '-'}`
+        }
+        const value = params.value || []
+        return `<strong>${params.name}</strong><br/>攻击次数：${value[2] ?? 0}<br/>来源：${params.data?.area || '-'}<br/>类型：${
+          (params.data?.attack_types || []).join('、') || '-'
+        }`
+      }
+    },
+    geo: {
+      map: 'world',
+      roam: false,
+      zoom: 1.05,
+      center: [12, 18],
+      itemStyle: {
+        areaColor: theme.area,
+        borderColor: theme.border,
+        borderWidth: 0.6
+      },
+      emphasis: {
+        itemStyle: { areaColor: theme.areaHover },
+        label: { show: false }
+      },
+      silent: true
+    },
+    series: [
+      {
+        name: '攻击链路',
+        type: 'lines',
+        coordinateSystem: 'geo',
+        zlevel: 1,
+        effect: {
+          show: true,
+          period: 3.2,
+          trailLength: 0.28,
+          symbol: 'arrow',
+          symbolSize: 7,
+          color: accent2
+        },
+        lineStyle: {
+          color: accent,
+          width: 1.2,
+          opacity: 0.55,
+          curveness: 0.25
+        },
+        emphasis: { lineStyle: { width: 2.4, opacity: 0.9 } },
+        data: arrowData
+      },
+      {
+        name: '攻击来源',
+        type: 'effectScatter',
+        coordinateSystem: 'geo',
+        zlevel: 2,
+        rippleEffect: { brushType: 'stroke', scale: 3.2, period: 4 },
+        symbolSize: (value) => Math.min(6 + Math.sqrt(value[2] || 1) * 2, 26),
+        itemStyle: { color: '#f97316', shadowBlur: 14, shadowColor: 'rgba(249,115,22,0.85)' },
+        label: {
+          show: true,
+          position: 'right',
+          formatter: '{b}',
+          color: theme.label,
+          fontSize: 10
+        },
+        data: points.value.map((item) => ({
+          name: item.name,
+          value: [item.lon, item.lat, item.count],
+          area: item.area,
+          attack_types: item.attack_types
+        }))
+      },
+      {
+        name: '防护目标',
+        type: 'scatter',
+        coordinateSystem: 'geo',
+        zlevel: 3,
+        symbol: 'pin',
+        symbolSize: 24,
+        itemStyle: { color: accent, shadowBlur: 16, shadowColor: `${accent}aa` },
+        label: {
+          show: true,
+          position: 'top',
+          formatter: () => targetPoint?.name || '防护目标',
+          color: theme.label,
+          fontSize: 11,
+          fontWeight: 600
+        },
+        data: targetPoint ? [{ name: targetPoint.name, value: [targetPoint.lon, targetPoint.lat, 0] }] : []
+      }
+    ]
+  }
+})
 
 const trendOption = computed(() => {
   const trend = snapshot.value?.trend ?? []
+  const theme = colors.value
   return {
     grid: { left: 8, right: 12, top: 16, bottom: 4, containLabel: true },
     tooltip: { trigger: 'axis' },
     xAxis: {
       type: 'category',
       data: trend.map((item) => item.date.slice(5)),
-      axisLine: { lineStyle: { color: 'rgba(148,163,184,0.3)' } },
-      axisLabel: { color: '#8593ad', fontSize: 10 }
+      axisLine: { lineStyle: { color: theme.axis } },
+      axisLabel: { color: theme.label, fontSize: 10 }
     },
     yAxis: { type: 'value', show: false },
     series: [
@@ -157,7 +253,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="screen">
+  <div class="screen" :class="dark ? 'is-dark' : 'is-light'">
     <div class="screen-head">
       <div>
         <h1 class="screen-title">攻击地图 · 实时态势</h1>
@@ -165,7 +261,7 @@ onBeforeUnmount(() => {
           统计范围 {{ snapshot?.range || '-' }} · 更新于 {{ snapshot?.updated_at || '-' }}
         </p>
       </div>
-      <div style="display: flex; align-items: center; gap: 10px">
+      <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
         <el-radio-group :model-value="range" size="small" @update:model-value="switchRange">
           <el-radio-button value="today">今日</el-radio-button>
           <el-radio-button value="all">全部</el-radio-button>
@@ -175,6 +271,22 @@ onBeforeUnmount(() => {
           <el-icon><Refresh /></el-icon>
         </el-button>
       </div>
+    </div>
+
+    <!-- 攻击状态条 -->
+    <div class="status-strip" :class="`is-${status.level}`">
+      <span class="status-badge">
+        <span class="status-dot"></span>
+        {{ statusText }}
+      </span>
+      <span class="status-message">{{ status.message }}</span>
+      <span class="status-facts">
+        <span class="fact"><b>{{ status.today_count || 0 }}</b> 今日攻击</span>
+        <span class="fact"><b>{{ status.window_count || 0 }}</b> 近 5 分钟</span>
+        <span class="fact"><b>{{ (status.rate_per_min || 0).toFixed(1) }}</b> 次/分</span>
+        <span class="fact">最近攻击 <b>{{ status.last_attack || '-' }}</b></span>
+        <span class="fact target">防护目标 <b>{{ target?.name || '-' }}</b></span>
+      </span>
     </div>
 
     <div class="screen-body">
@@ -201,6 +313,9 @@ onBeforeUnmount(() => {
               <div class="metric-label">保护站点</div>
             </div>
           </div>
+          <div class="arrow-note">
+            箭头表示「来源 → 防护目标」的攻击链路，线宽随攻击次数增加
+          </div>
         </div>
 
         <div class="screen-card">
@@ -214,7 +329,7 @@ onBeforeUnmount(() => {
               <div class="bar-fill" :style="{ width: `${Math.max(6, (item.num / maxTypeNum) * 100)}%` }"></div>
             </div>
           </div>
-          <div v-if="!topTypes.length" class="waf-empty" style="color: #64748b">暂无数据</div>
+          <div v-if="!topTypes.length" class="empty-hint">暂无数据</div>
         </div>
       </div>
 
@@ -222,7 +337,7 @@ onBeforeUnmount(() => {
       <div class="screen-col screen-col--center">
         <div class="screen-card screen-map">
           <ChartPanel v-if="points.length" :option="mapOption" height="100%" />
-          <div v-else class="waf-empty" style="color: #64748b">
+          <div v-else class="empty-hint">
             <el-icon><Location /></el-icon> 暂无可定位的攻击来源
           </div>
         </div>
@@ -241,7 +356,7 @@ onBeforeUnmount(() => {
               <span class="rank-name">{{ item.name }}</span>
               <span class="rank-tag" :class="{ warn: item.count > 0 }">{{ item.count }}</span>
             </div>
-            <div v-if="!topCountries.length" class="waf-empty" style="color: #64748b">暂无数据</div>
+            <div v-if="!topCountries.length" class="empty-hint">暂无数据</div>
           </div>
         </div>
 
@@ -253,7 +368,7 @@ onBeforeUnmount(() => {
               <span class="ticker-ip waf-mono">{{ item.client_ip }}</span>
               <span class="ticker-type">{{ item.attack_type }}</span>
             </div>
-            <div v-if="!recent.length" class="waf-empty" style="color: #64748b">暂无拦截记录</div>
+            <div v-if="!recent.length" class="empty-hint">暂无拦截记录</div>
           </div>
         </div>
       </div>
@@ -262,12 +377,34 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* 主题变量：亮色为默认，暗色由 html.dark 覆盖 */
 .screen {
+  --map-bg: radial-gradient(1200px 500px at 50% -10%, rgba(99, 102, 241, 0.12), transparent 65%),
+    linear-gradient(160deg, #f5f7fe 0%, #eef2fb 60%, #f7f9ff 100%);
+  --map-card-bg: rgba(255, 255, 255, 0.86);
+  --map-border: rgba(99, 102, 241, 0.18);
+  --map-text: #1f2937;
+  --map-text-muted: #5b6779;
+  --map-title: var(--waf-primary);
+  --map-bar-track: rgba(99, 102, 241, 0.12);
+  --map-shadow: 0 16px 32px -28px rgba(15, 23, 42, 0.5);
+
   min-height: 100%;
   padding: 18px 22px 26px;
-  background: radial-gradient(1200px 500px at 50% -10%, rgba(79, 70, 229, 0.25), transparent 65%),
+  background: var(--map-bg);
+  color: var(--map-text);
+}
+
+.screen.is-dark {
+  --map-bg: radial-gradient(1200px 500px at 50% -10%, rgba(79, 70, 229, 0.25), transparent 65%),
     linear-gradient(160deg, #070c18 0%, #0a1120 60%, #080d18 100%);
-  color: #e2e8f6;
+  --map-card-bg: rgba(19, 29, 49, 0.72);
+  --map-border: rgba(99, 102, 241, 0.22);
+  --map-text: #e2e8f6;
+  --map-text-muted: #7f8caa;
+  --map-title: #c7d2fe;
+  --map-bar-track: rgba(99, 102, 241, 0.16);
+  --map-shadow: 0 20px 40px -30px rgba(0, 0, 0, 0.9);
 }
 
 .screen-head {
@@ -275,7 +412,7 @@ onBeforeUnmount(() => {
   align-items: flex-end;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
   flex-wrap: wrap;
 }
 
@@ -284,24 +421,98 @@ onBeforeUnmount(() => {
   font-size: 20px;
   font-weight: 750;
   letter-spacing: 0.6px;
-  background: linear-gradient(120deg, #c7d2fe, #a5b4fc 45%, #7dd3fc);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: var(--map-title);
 }
 
 .screen-sub {
   margin: 6px 0 0;
   font-size: 12px;
-  color: #7f8caa;
+  color: var(--map-text-muted);
+}
+
+/* 攻击状态条 */
+.status-strip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  border-radius: 12px;
+  border: 1px solid var(--map-border);
+  background: var(--map-card-bg);
+  box-shadow: var(--map-shadow);
+  font-size: 12.5px;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-weight: 700;
+  color: #fff;
+  background: #22c55e;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.7);
+  animation: pulse 1.8s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.6);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(255, 255, 255, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
+  }
+}
+
+.is-elevated .status-badge {
+  background: #f59e0b;
+}
+
+.is-high .status-badge {
+  background: #ef4444;
+}
+
+.status-message {
+  color: var(--map-text);
+  font-weight: 600;
+}
+
+.status-facts {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-left: auto;
+  color: var(--map-text-muted);
+}
+
+.status-facts b {
+  color: var(--map-text);
+  font-weight: 700;
+}
+
+.status-facts .target b {
+  color: var(--waf-primary);
 }
 
 .screen-body {
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr) 300px;
   gap: 14px;
-  height: calc(100vh - 190px);
-  min-height: 560px;
+  height: calc(100vh - 240px);
+  min-height: 520px;
 }
 
 .screen-col {
@@ -312,22 +523,22 @@ onBeforeUnmount(() => {
 }
 
 .screen-card {
-  background: rgba(19, 29, 49, 0.72);
-  border: 1px solid rgba(99, 102, 241, 0.22);
+  background: var(--map-card-bg);
+  border: 1px solid var(--map-border);
   border-radius: 14px;
   padding: 14px 16px;
   backdrop-filter: blur(6px);
-  box-shadow: 0 20px 40px -30px rgba(0, 0, 0, 0.9);
+  box-shadow: var(--map-shadow);
   min-height: 0;
 }
 
 .screen-card-title {
   font-size: 13px;
   font-weight: 650;
-  color: #c7d2fe;
+  color: var(--map-title);
   margin-bottom: 12px;
   padding-left: 8px;
-  border-left: 3px solid #6366f1;
+  border-left: 3px solid var(--waf-primary);
   line-height: 1.2;
 }
 
@@ -338,7 +549,6 @@ onBeforeUnmount(() => {
   display: flex;
   overflow: hidden;
 }
-
 .metric-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -347,8 +557,8 @@ onBeforeUnmount(() => {
 }
 
 .metric {
-  background: linear-gradient(140deg, rgba(99, 102, 241, 0.18), rgba(15, 23, 42, 0.2));
-  border: 1px solid rgba(99, 102, 241, 0.2);
+  background: color-mix(in srgb, var(--waf-primary) 12%, transparent);
+  border: 1px solid var(--map-border);
   border-radius: 10px;
   padding: 10px 12px;
 }
@@ -356,13 +566,20 @@ onBeforeUnmount(() => {
 .metric-value {
   font-size: 22px;
   font-weight: 750;
-  color: #e8edfb;
+  color: var(--map-text);
 }
 
 .metric-label {
   font-size: 11.5px;
-  color: #8593ad;
+  color: var(--map-text-muted);
   margin-top: 2px;
+}
+
+.arrow-note {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--map-text-muted);
 }
 
 .bar-item {
@@ -373,26 +590,26 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: space-between;
   font-size: 12px;
-  color: #b6c2d9;
+  color: var(--map-text-muted);
   margin-bottom: 4px;
 }
 
 .bar-num {
-  color: #a5b4fc;
+  color: var(--waf-primary);
   font-weight: 650;
 }
 
 .bar-track {
   height: 6px;
   border-radius: 999px;
-  background: rgba(148, 163, 184, 0.15);
+  background: var(--map-bar-track);
   overflow: hidden;
 }
 
 .bar-fill {
   height: 100%;
   border-radius: 999px;
-  background: linear-gradient(90deg, #6366f1, #22d3ee);
+  background: linear-gradient(90deg, var(--waf-primary), var(--waf-accent));
   transition: width 0.5s ease;
 }
 
@@ -408,16 +625,16 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
   font-size: 12.5px;
-  color: #c3cddf;
+  color: var(--map-text);
   padding: 4px 6px;
   border-radius: 8px;
-  background: rgba(148, 163, 184, 0.06);
+  background: color-mix(in srgb, var(--waf-primary) 7%, transparent);
 }
 
 .rank-index {
   width: 18px;
   text-align: center;
-  color: #7f8caa;
+  color: var(--map-text-muted);
   font-size: 11px;
 }
 
@@ -428,7 +645,7 @@ onBeforeUnmount(() => {
 .rank-tag {
   font-family: ui-monospace, Menlo, monospace;
   font-size: 11.5px;
-  color: #93a2bd;
+  color: var(--map-text-muted);
 }
 
 .rank-tag.warn {
@@ -440,25 +657,35 @@ onBeforeUnmount(() => {
   gap: 8px;
   align-items: center;
   font-size: 12px;
-  color: #b6c2d9;
+  color: var(--map-text);
   padding: 5px 6px;
-  border-bottom: 1px dashed rgba(148, 163, 184, 0.12);
+  border-bottom: 1px dashed var(--map-border);
 }
 
 .ticker-time {
-  color: #6f7d99;
+  color: var(--map-text-muted);
   font-family: ui-monospace, Menlo, monospace;
   font-size: 11px;
 }
 
 .ticker-ip {
-  color: #a5b4fc;
+  color: var(--waf-primary);
 }
 
 .ticker-type {
   margin-left: auto;
-  color: #f0abfc;
+  color: var(--waf-accent);
   font-size: 11.5px;
+}
+
+.empty-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 14px 0;
+  font-size: 12.5px;
+  color: var(--map-text-muted);
 }
 
 @media (max-width: 1280px) {
@@ -491,6 +718,10 @@ onBeforeUnmount(() => {
   .screen-card {
     padding: 12px;
   }
+  .status-facts {
+    margin-left: 0;
+    gap: 10px;
+  }
 }
 
 @media (max-width: 640px) {
@@ -509,4 +740,5 @@ onBeforeUnmount(() => {
   .metric-label {
     font-size: 11px;
   }
-}</style>
+}
+</style>

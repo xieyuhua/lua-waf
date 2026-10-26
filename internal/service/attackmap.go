@@ -33,6 +33,30 @@ type CountryStat struct {
 	Domestic bool   `json:"domestic"`
 }
 
+// AttackTarget 是大屏的防护目标点（攻击箭头的终点）。
+type AttackTarget struct {
+	Name string  `json:"name"`
+	Area string  `json:"area"`
+	Lat  float64 `json:"lat"`
+	Lon  float64 `json:"lon"`
+}
+
+// AttackStatus 是大屏顶部的攻击状态。
+type AttackStatus struct {
+	// Level 为状态等级：normal（窗口内无攻击）/ elevated（有攻击）/ high（持续高频）。
+	Level string `json:"level"`
+	// Message 为状态描述。
+	Message string `json:"message"`
+	// LastAttack 为最近一次攻击时间。
+	LastAttack string `json:"last_attack"`
+	// TodayCount 为今日攻击总数。
+	TodayCount int64 `json:"today_count"`
+	// WindowCount 为最近 5 分钟内（相对最近一条日志）的攻击数。
+	WindowCount int64 `json:"window_count"`
+	// RatePerMin 为窗口内的每分钟攻击数。
+	RatePerMin float64 `json:"rate_per_min"`
+}
+
 // AttackMapSnapshot 是攻击大屏的数据快照。
 type AttackMapSnapshot struct {
 	Points       []AttackPoint    `json:"points"`
@@ -47,6 +71,10 @@ type AttackMapSnapshot struct {
 	SiteCount    int64            `json:"site_count"`
 	Range        string           `json:"range"`
 	UpdatedAt    string           `json:"updated_at"`
+	// Target 为攻击箭头的终点（防护目标位置）。
+	Target AttackTarget `json:"target"`
+	// Status 为顶部的攻击状态。
+	Status AttackStatus `json:"status"`
 }
 
 // AttackMapService 负责攻击来源的地理解析与聚合。
@@ -54,6 +82,8 @@ type AttackMapService struct {
 	Logs     repository.LogRepository
 	Sites    repository.SiteRepository
 	Resolver geo.Resolver
+	// TargetArea 为防护目标地区文本（如 中国-北京），用于绘制攻击箭头。
+	TargetArea string
 }
 
 // Snapshot 生成大屏快照，day 为 today 时只统计当日数据。
@@ -171,5 +201,82 @@ func (s *AttackMapService) Snapshot(ctx context.Context, day string) (*AttackMap
 		return nil, ErrInternal.Wrap(err, "统计站点失败")
 	}
 	snapshot.SiteCount = siteCount
+
+	snapshot.Target = s.target()
+	snapshot.Status = s.status(ctx, recent)
 	return snapshot, nil
+}
+
+// target 解析防护目标坐标（攻击箭头终点）。
+func (s *AttackMapService) target() AttackTarget {
+	area := strings.TrimSpace(s.TargetArea)
+	if area == "" {
+		area = "中国-北京"
+	}
+
+	point, ok := s.Resolver.Resolve(area)
+	if !ok {
+		// 词表里没有时退回北京坐标，至少保证箭头可绘制
+		return AttackTarget{Name: "防护目标", Area: area, Lat: 39.9042, Lon: 116.4074}
+	}
+	return AttackTarget{Name: point.Name, Area: area, Lat: point.Lat, Lon: point.Lon}
+}
+
+// status 计算大屏顶部的攻击状态：以「最近一条日志时间」为基准回看 5 分钟。
+func (s *AttackMapService) status(ctx context.Context, recent []model.WafLog) AttackStatus {
+	const window = 5 * time.Minute
+
+	todayCount, err := s.Logs.CountOnDay(ctx, time.Now().Format("2006-01-02"))
+	if err != nil {
+		todayCount = 0
+	}
+
+	status := AttackStatus{Level: "normal", Message: "近期无攻击", TodayCount: todayCount}
+	if len(recent) == 0 {
+		return status
+	}
+
+	latest, ok := parseLogTime(recent[0].LocalTime)
+	if !ok {
+		return status
+	}
+	status.LastAttack = recent[0].LocalTime
+
+	for _, item := range recent {
+		at, parsed := parseLogTime(item.LocalTime)
+		if !parsed {
+			continue
+		}
+		if latest.Sub(at) <= window {
+			status.WindowCount++
+		}
+	}
+
+	status.RatePerMin = float64(status.WindowCount) / window.Minutes()
+	switch {
+	case status.WindowCount >= 30:
+		status.Level = "high"
+		status.Message = "正在遭受高频攻击"
+	case status.WindowCount > 0:
+		status.Level = "elevated"
+		status.Message = "检测到攻击流量"
+	default:
+		status.Message = "窗口内无攻击（最近一次 " + status.LastAttack + "）"
+	}
+	return status
+}
+
+// parseLogTime 解析 waf_log.local_time（YYYY-MM-DD HH:MM:SS）。
+func parseLogTime(value string) (time.Time, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}, false
+	}
+	if at, err := time.ParseInLocation("2006-01-02 15:04:05", value, time.Local); err == nil {
+		return at, true
+	}
+	if at, err := time.Parse(time.RFC3339, value); err == nil {
+		return at, true
+	}
+	return time.Time{}, false
 }

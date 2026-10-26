@@ -367,6 +367,33 @@
 
 缓存有效期内无记录时返回 `1004`（README 提示「请重新分析」）。
 
+### GET /api/lua/config
+
+返回 lua-waf `config.lua` 的可编辑项（按分组，密钥脱敏）。`unknown` 为未纳入表单的键（如多行 `config_output_html`）：
+
+```json
+{ "path": "/www/server/nginx/x-waf/config.lua", "exists": true, "writable": true, "updated_at": "2026-10-26 22:47:29",
+  "groups": [ { "name": "基础", "items": [ { "key": "config_waf_enable", "label": "总开关", "type": "switch", "value": "on" } ] } ],
+  "unknown": ["config_output_html"], "need_reload": true }
+```
+
+### PUT /api/lua/config
+
+```json
+{ "values": { "config_waf_enable": "off", "config_cc_rate": "200/60", "config_auto_ban_check": "on" } }
+```
+
+只替换对应行（保留注释、顺序、引号风格），数字保持裸值，写前备份 `config.lua.bak` 再原子替换；
+取值非法（开关非 on/off、数字越界、下拉不在选项内、限速格式错误、未知键）返回 `1001`，且不会改动文件。
+
+### GET /api/lua/config/raw
+
+返回 `{ "content": "-- WAF config file ..." }`。
+
+### POST /api/lua/reload
+
+执行 `nginx -t` 后 `nginx -s reload` 使 config.lua 生效（演示模式返回 dry-run 提示）。
+
 ### GET /api/ai/config
 
 ```json

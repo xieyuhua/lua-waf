@@ -63,6 +63,12 @@ export const routes = [
         meta: { title: '外观设置', crumb: '系统设置 / 外观设置' }
       },
       {
+        path: 'settings/lua',
+        name: 'lua-config',
+        component: () => import('../views/LuaConfigView.vue'),
+        meta: { title: 'WAF 配置', crumb: '系统设置 / WAF 配置' }
+      },
+      {
         path: 'settings/system',
         name: 'system-config',
         component: () => import('../views/SystemConfigView.vue'),
