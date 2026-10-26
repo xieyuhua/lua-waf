@@ -1,0 +1,305 @@
+// Package config 负责装配、校验 wafadmin 的运行配置。
+// 配置来源优先级：默认值 < conf/app.ini < 环境变量。
+package config
+
+import (
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
+	"net"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
+	"gopkg.in/ini.v1"
+)
+
+// 运行模式。demo 模式使用内存仓储并载入演示数据，无需 MySQL。
+const (
+	ModeDev  = "dev"
+	ModeDemo = "demo"
+	ModeProd = "prod"
+)
+
+// Database 描述 MySQL 连接参数。
+type Database struct {
+	Host     string
+	Port     int
+	User     string
+	Password string
+	Name     string
+}
+
+// DSN 组装 go-sql-driver/mysql 连接串。
+func (d Database) DSN() string {
+	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8&parseTime=true&loc=Local&timeout=5s",
+		d.User, d.Password, d.Host, d.Port, d.Name)
+}
+
+// Config 是应用的全部可配置项。
+type Config struct {
+	// Source 记录配置文件的加载来源，（defaults）表示全部使用默认值。
+	Source  string
+	RunMode string
+	AppVer  string
+
+	HTTPPort   int
+	APIKey     string
+	APIServers []string
+
+	NginxBin    string
+	NginxVhosts string
+	RulePath    string
+	SSLCertDir  string
+	WafLogDir   string
+
+	PageSize int
+
+	SessionSecret string
+	SessionTTL    time.Duration
+	SessionSecure bool
+	CaptchaTTL    time.Duration
+
+	// SlowSQLThreshold 为后台自身慢 SQL 的采集阈值。
+	SlowSQLThreshold time.Duration
+
+	Database Database
+}
+
+// IsDemo 表示是否处于演示模式（内存仓储）。
+func (c *Config) IsDemo() bool { return c.RunMode == ModeDemo }
+
+// IsProd 表示是否处于生产模式。
+func (c *Config) IsProd() bool { return c.RunMode == ModeProd }
+
+// Addr 返回 HTTP 监听地址。
+func (c *Config) Addr() string { return fmt.Sprintf(":%d", c.HTTPPort) }
+
+// EnsureSessionSecret 在未配置会话密钥时生成一次性随机密钥。
+// 返回 true 表示本次为随机生成，重启后既有会话将失效。
+func (c *Config) EnsureSessionSecret() bool {
+	if strings.TrimSpace(c.SessionSecret) != "" {
+		return false
+	}
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		c.SessionSecret = fmt.Sprintf("wafadmin-fallback-%d", time.Now().UnixNano())
+		return true
+	}
+	c.SessionSecret = hex.EncodeToString(buf)
+	return true
+}
+
+// Loader 负责把 ini 文件与环境变量合并为 Config。
+// 零值即可使用：Path 为空时取 WAF_CONFIG 或 conf/app.ini。
+type Loader struct {
+	// Path 为 ini 文件路径。
+	Path string
+	// Env 用于读取环境变量，为空时使用 os.Getenv。
+	Env func(string) string
+}
+
+// Load 读取并校验配置。
+func (l *Loader) Load() (*Config, error) {
+	cfg := l.defaults()
+
+	path := l.Path
+	if strings.TrimSpace(path) == "" {
+		path = l.env("WAF_CONFIG")
+	}
+	if strings.TrimSpace(path) == "" {
+		path = filepath.Join("conf", "app.ini")
+	}
+
+	switch file, err := ini.LoadSources(ini.LoadOptions{Loose: true}, path); {
+	case err == nil:
+		cfg.Source = path
+		l.applyINI(cfg, file)
+	case os.IsNotExist(err):
+		// 缺失配置文件时以默认值启动，便于演示与容器化部署。
+		cfg.Source = "(defaults)"
+	default:
+		return nil, fmt.Errorf("解析配置文件 %s 失败: %w", path, err)
+	}
+
+	l.applyEnv(cfg)
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
+// defaults 返回内置默认配置。
+func (l *Loader) defaults() *Config {
+	return &Config{
+		RunMode:          ModeDev,
+		AppVer:           "2.0",
+		HTTPPort:         5000,
+		APIServers:       []string{"127.0.0.1"},
+		NginxBin:         "/usr/local/openresty/nginx/sbin/nginx",
+		NginxVhosts:      "/usr/local/openresty/nginx/conf/vhosts/",
+		RulePath:         "/usr/local/openresty/nginx/conf/waf/rules/",
+		SSLCertDir:       "/www/server/panel/vhost/cert",
+		WafLogDir:        "/www/wwwlogs/waf",
+		PageSize:         10,
+		SessionTTL:       12 * time.Hour,
+		CaptchaTTL:       5 * time.Minute,
+		SlowSQLThreshold: 200 * time.Millisecond,
+		Database: Database{
+			Host: "127.0.0.1",
+			Port: 3306,
+			User: "waf",
+			Name: "waf",
+		},
+	}
+}
+
+// applyINI 把 ini 内容叠加到配置上。
+func (l *Loader) applyINI(cfg *Config, file *ini.File) {
+	cfg.RunMode = strings.ToLower(file.Section("").Key("RUN_MODE").MustString(cfg.RunMode))
+
+	server := file.Section("server")
+	cfg.HTTPPort = server.Key("HTTP_PORT").MustInt(cfg.HTTPPort)
+	cfg.APIKey = server.Key("API_KEY").MustString(cfg.APIKey)
+	cfg.NginxBin = server.Key("NGINX_BIN").MustString(cfg.NginxBin)
+	cfg.NginxVhosts = ensureTrailingSlash(server.Key("NGINX_VHOSTS").MustString(cfg.NginxVhosts))
+	cfg.SSLCertDir = server.Key("SSL_CERT_DIR").MustString(cfg.SSLCertDir)
+	cfg.APIServers = splitList(server.Key("API_SERVERS").MustString(strings.Join(cfg.APIServers, ",")), ",")
+
+	waf := file.Section("waf")
+	cfg.RulePath = ensureTrailingSlash(waf.Key("RULE_PATH").MustString(cfg.RulePath))
+	cfg.WafLogDir = waf.Key("LOG_DIR").MustString(cfg.WafLogDir)
+
+	if ms := file.Section("monitor").Key("SLOW_SQL_MS").MustInt(int(cfg.SlowSQLThreshold.Milliseconds())); ms > 0 {
+		cfg.SlowSQLThreshold = time.Duration(ms) * time.Millisecond
+	}
+	cfg.PageSize = file.Section("pager").Key("PAGEMax").MustInt(cfg.PageSize)
+
+	security := file.Section("security")
+	cfg.SessionSecret = security.Key("SESSION_SECRET").MustString(cfg.SessionSecret)
+	cfg.SessionSecure = security.Key("SESSION_SECURE").MustBool(false)
+	if ttl, err := time.ParseDuration(security.Key("SESSION_TTL").MustString(cfg.SessionTTL.String())); err == nil {
+		cfg.SessionTTL = ttl
+	}
+	if ttl, err := time.ParseDuration(security.Key("CAPTCHA_TTL").MustString(cfg.CaptchaTTL.String())); err == nil {
+		cfg.CaptchaTTL = ttl
+	}
+
+	db := file.Section("database")
+	cfg.Database.User = db.Key("USER").MustString(cfg.Database.User)
+	cfg.Database.Password = db.Key("PASSWD").MustString(cfg.Database.Password)
+	cfg.Database.Name = db.Key("NAME").MustString(cfg.Database.Name)
+	host, port := splitHostPort(db.Key("HOST").MustString(""), cfg.Database.Port)
+	cfg.Database.Host = host
+	cfg.Database.Port = db.Key("PORT").MustInt(port)
+}
+
+// applyEnv 用环境变量覆盖配置，便于容器化部署。
+func (l *Loader) applyEnv(cfg *Config) {
+	if v := l.env("WAF_RUN_MODE"); v != "" {
+		cfg.RunMode = strings.ToLower(v)
+	}
+	if v := l.env("WAF_HTTP_PORT"); v != "" {
+		if port, err := strconv.Atoi(v); err == nil {
+			cfg.HTTPPort = port
+		}
+	}
+	if v := l.env("WAF_API_KEY"); v != "" {
+		cfg.APIKey = v
+	}
+	if v := l.env("WAF_SESSION_SECRET"); v != "" {
+		cfg.SessionSecret = v
+	}
+	if v := l.env("WAF_DB_HOST"); v != "" {
+		host, port := splitHostPort(v, cfg.Database.Port)
+		cfg.Database.Host, cfg.Database.Port = host, port
+	}
+	if v := l.env("WAF_DB_USER"); v != "" {
+		cfg.Database.User = v
+	}
+	if v := l.env("WAF_DB_PASSWD"); v != "" {
+		cfg.Database.Password = v
+	}
+	if v := l.env("WAF_DB_NAME"); v != "" {
+		cfg.Database.Name = v
+	}
+}
+
+// env 读取环境变量，未配置读取器时回落到 os.Getenv。
+func (l *Loader) env(key string) string {
+	if l.Env != nil {
+		return strings.TrimSpace(l.Env(key))
+	}
+	return strings.TrimSpace(os.Getenv(key))
+}
+
+// Validate 校验关键配置项。
+func (c *Config) Validate() error {
+	switch c.RunMode {
+	case ModeDev, ModeDemo, ModeProd:
+	default:
+		return fmt.Errorf("不支持的 RUN_MODE: %q（可选 dev/demo/prod）", c.RunMode)
+	}
+	if c.HTTPPort <= 0 || c.HTTPPort > 65535 {
+		return fmt.Errorf("HTTP_PORT 非法: %d", c.HTTPPort)
+	}
+	if c.PageSize <= 0 {
+		c.PageSize = 10
+	}
+	if c.SessionTTL <= 0 {
+		c.SessionTTL = 12 * time.Hour
+	}
+	if c.CaptchaTTL <= 0 {
+		c.CaptchaTTL = 5 * time.Minute
+	}
+	if len(c.APIServers) == 0 {
+		c.APIServers = []string{"127.0.0.1"}
+	}
+	if !c.IsDemo() {
+		if strings.TrimSpace(c.Database.Host) == "" || strings.TrimSpace(c.Database.Name) == "" {
+			return fmt.Errorf("database 配置不完整：需要 HOST 与 NAME")
+		}
+		if net.ParseIP(strings.TrimSpace(c.Database.Host)) == nil && strings.TrimSpace(c.Database.Host) == "" {
+			return fmt.Errorf("database.HOST 非法")
+		}
+	}
+	return nil
+}
+
+// ensureTrailingSlash 保证目录型配置以分隔符结尾。
+func ensureTrailingSlash(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" || strings.HasSuffix(p, "/") || strings.HasSuffix(p, "\\") {
+		return p
+	}
+	return p + "/"
+}
+
+// splitList 按分隔符切分并剔除空项。
+func splitList(raw, sep string) []string {
+	out := make([]string, 0, 4)
+	for _, item := range strings.Split(raw, sep) {
+		if item = strings.TrimSpace(item); item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+// splitHostPort 兼容 "1.2.3.4:3306" 与 "1.2.3.4" 两种写法。
+func splitHostPort(raw string, fallbackPort int) (string, int) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", fallbackPort
+	}
+	host, port, err := net.SplitHostPort(raw)
+	if err != nil {
+		return raw, fallbackPort
+	}
+	if p, convErr := strconv.Atoi(port); convErr == nil && p > 0 {
+		return host, p
+	}
+	return host, fallbackPort
+}

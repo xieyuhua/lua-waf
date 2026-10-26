@@ -7,6 +7,8 @@ local unescape = ngx.unescape_uri
 
 local config = require("config")
 local util = require("util")
+local body = require("body")
+local malformed = require("malformed")
 
 local _M = {
     RULES = {}
@@ -210,30 +212,27 @@ function _M.user_agent_attack_check()
     return false
 end
 
--- deny post
+-- deny malformed request (HTTP 走私 / 头部注入 / 非法编码)
+function _M.malformed_request_check()
+    if config.config_malformed_check ~= "on" then
+        return false
+    end
+    -- malformed.check 内部已完成日志记录与拦截输出
+    return malformed.check()
+end
+
+-- deny post（含 urlencoded / multipart 分段 / json / 大请求体落盘场景）
 function _M.post_attack_check()
-    if config.config_post_check == "on" then
-        ngx.req.read_body()
-        local POST_RULES = _M.get_rule('post.rule')
-        for _, rule in pairs(POST_RULES) do
-            local POST_ARGS = ngx.req.get_post_args() or {}
-            for k, v in pairs(POST_ARGS) do
-                local post_data = ""
-                if type(v) == "table" then
-                    post_data = table.concat(v, ", ")
-                elseif type(v) == "boolean" then
-                    post_data = k
-                else
-                    post_data = v
-                end
-                if rule ~= "" and rulematch(post_data, rule, "joi") then
-                    util.log_record(config.config_log_dir, 'post参数攻击', post_data, "-", rule)
-                    if config.config_waf_enable == "on" then
-                        util.waf_output()
-                        return true
-                    end
-                end
-            end
+    if config.config_post_check ~= "on" then
+        return false
+    end
+
+    local hit, attack_type, detail, rule_tag = body.check(_M.get_rule('post.rule'))
+    if hit then
+        util.log_record(config.config_log_dir, attack_type, ngx.var.request_uri, detail, rule_tag)
+        if config.config_waf_enable == "on" then
+            util.waf_output()
+            return true
         end
     end
     return false
@@ -250,7 +249,8 @@ end
 
 -- waf start
 function _M.check()
-    if _M.white_ip_check() then
+    if _M.malformed_request_check() then
+    elseif _M.white_ip_check() then
     elseif _M.black_ip_check() then
     elseif _M.user_agent_attack_check() then
     elseif _M.white_url_check() then

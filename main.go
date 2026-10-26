@@ -1,112 +1,63 @@
 package main
 
 import (
+	"context"
+	"embed"
+	"flag"
+	"io/fs"
 	"log"
-	"net/http"
-	"runtime"
-	"github.com/go-macaron/cache"
-	"github.com/go-macaron/captcha"
-	"github.com/go-macaron/csrf"
-	"github.com/go-macaron/session"
-	"gopkg.in/macaron.v1"
-	"wafadmin/routers"
-	"wafadmin/setting"
-	"fmt"
-	"strings"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"wafadmin/internal/app"
+	"wafadmin/internal/config"
 )
 
-const APP_VER = "0.1"
+// 构建时可通过 -ldflags "-X main.version=x.y.z" 覆盖版本号。
+var version = "2.0.0"
 
-func init() {
-	runtime.GOMAXPROCS(runtime.NumCPU())
-	setting.AppVer = APP_VER
-}
+// webAssets 内嵌 Vue 前端构建产物，保证单文件分发。
+//
+//go:embed all:web/dist
+var webAssets embed.FS
 
 func main() {
-	m := macaron.Classic()
-	m.Use(macaron.Renderer())
-	m.Use(session.Sessioner())
-	m.Use(csrf.Csrfer())
-	m.Use(cache.Cacher())
-	m.Use(captcha.Captchaer(captcha.Options{
-		URLPrefix:        "/captcha/",
-		FieldIdName:      "captcha_id",
-		FieldCaptchaName: "captcha",
-		ChallengeNums:    6,
-		Width:            220,
-		Height:           50,
-		Expiration:       600,
-		CachePrefix:      "captcha_",
-	}))
+	configPath := flag.String("config", "", "配置文件路径，默认取 WAF_CONFIG 或 conf/app.ini")
+	flag.Parse()
 
-	m.Get("/", routers.Index)
-	m.Get("/login/", routers.LoginIndex)
-	m.Post("/login/", csrf.Validate, routers.Auth)
+	static, err := fs.Sub(webAssets, "web/dist")
+	if err != nil {
+		log.Fatalf("[fatal] 加载内嵌前端资源失败: %v", err)
+	}
 
-	m.Group("/admin", func() {
-		m.Get("/index/", routers.Admin)
-		m.Group("/site/", func() {
-			m.Get("", routers.Admin)
-			m.Get("/list/", routers.Admin)
-			m.Get("/new/", routers.NewSite)
-			m.Post("/new/", csrf.Validate, routers.DoNewSite)
-			m.Get("/edit/:id", routers.EditSite)
-			m.Post("/edit/:id", csrf.Validate, routers.DoEditSite)
-			m.Get("/del/:id", routers.DelSite)
-			m.Get("/sync/", routers.SyncSite)
-			m.Get("/sync/:id", routers.SyncSiteById)
-			m.Get("/json/", routers.SiteJSON)
-		})
-
-		m.Group("/rule/", func() {
-			m.Get("", routers.ListRules)
-			m.Get("/list/", routers.ListRules)
-			m.Get("/new/:type", routers.NewRule)
-			m.Post("/new/:type", csrf.Validate, routers.DoNewRule)
-			m.Get("/edit/:id", routers.EditRule)
-			m.Post("/edit/:id", csrf.Validate, routers.DoEditRule)
-			m.Get("/del/:id", routers.DelRule)
-			m.Get("/sync/", routers.SyncRule)
-		})
-
-		m.Group("/user/", func() {
-			m.Get("", routers.ListUser)
-			m.Get("/list/", routers.ListUser)
-			m.Get("/new/", routers.NewUser)
-			m.Post("/new/", csrf.Validate, routers.DoNewUser)
-			m.Get("/edit/:id", routers.EditUser)
-			m.Post("edit/:id", csrf.Validate, routers.DoEditUser)
-			m.Get("/del/:id", routers.DelUser)
-			m.Get("/json/", routers.UserJSON)
-		})
-
-		m.Group("/waflog/", func() {
-			m.Get("/:id", routers.ListLogs)
-			m.Get("", routers.ListLogs)
-		})
-		m.Group("/iplog/", func() {
-			m.Get("", routers.ListIPs)
-
-		})
-		m.Group("/typelog/", func() {
-			m.Get("", routers.ListTypes)
-
-		})
-		m.Group("/dates/", func() {
-			m.Get("", routers.ListDate)
-		})
-		
-		
-		
+	instance, err := app.New(app.Options{
+		Config:  &config.Loader{Path: *configPath},
+		Static:  static,
+		Version: version,
 	})
+	if err != nil {
+		log.Fatalf("[fatal] 启动失败: %v", err)
+	}
 
-	m.Group("/api", func() {
-		m.Get("/site/sync/", routers.SyncSiteApi)
-		m.Get("/rule/sync/", routers.SyncRuleApi)
-	})
+	go func() {
+		if runErr := instance.Run(); runErr != nil {
+			log.Printf("[fatal] 服务异常退出: %v", runErr)
+			os.Exit(1)
+		}
+	}()
 
-	log.Printf("waf admin %s", setting.AppVer)
-	log.Printf("Run mode %s", strings.Title(macaron.Env))
-	log.Printf("Server is running on %s", fmt.Sprintf("0.0.0.0:%v", setting.HTTPPort))
-	log.Println(http.ListenAndServe(fmt.Sprintf("0.0.0.0:%v", setting.HTTPPort), m))
+	// 等待退出信号后优雅关闭
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	log.Println("[info] 正在关闭服务...")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := instance.Shutdown(ctx); err != nil {
+		log.Printf("[warn] 关闭服务时出现错误: %v", err)
+	}
+	log.Println("[info] 服务已停止")
 }

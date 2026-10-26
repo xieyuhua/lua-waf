@@ -39,6 +39,27 @@ x-waf由waf自身与Waf管理后台组成：
 waf和waf-admin必须同时部署在每一台云WAF服务器中。
 
 
+## v2 新增：请求体与畸形请求防御
+
+| 文件 | 作用 |
+| --- | --- |
+| `body.lua` | 请求体检测：统一读取（含 `get_body_file` 临时文件场景）、按 Content-Type 分段解析 urlencoded / multipart / json，逐段套用 `post.rule`；拦截缺失 boundary、分段数量超限、分段头 NUL/裸换行、字段名注入、上传文件名路径穿越 |
+| `malformed.lua` | 畸形请求检测：TE/CL 冲突、重复 Content-Length、非单一 chunked、原始报文 NUL 与裸 CR/LF、非规范百分号编码、解码后控制字符、超长请求行、缺失/非法 Host |
+
+开关（`config.lua`）：
+
+```lua
+config_post_check = "on",              -- 请求体检测总开关
+config_post_multipart_check = "on",    -- multipart / 分段上传检测
+config_post_max_size = 8388608,        -- 深度检测上限（8MB），超过只记录不阻断
+config_post_max_parts = 200,           -- multipart 分段数量上限
+config_malformed_check = "on",         -- 畸形请求检测总开关
+```
+
+调用顺序在 `waf.lua` 的 `_M.check()` 中：畸形请求检测 → 白名单 IP → 黑名单 IP → UA → 白名单 URL →
+URL → CC → Cookie → URL 参数 → POST/请求体。
+
+
 ## 致谢
 
 1. 感谢春哥开源的[openresty](https://openresty.org)

@@ -35,6 +35,14 @@ local _M = {
     config_ipcc_rate = "120/7200",
     -- enable/disable post filtering
     config_post_check = "on",
+    -- enable/disable multipart / 分段上传检测（逐段检查字段名、文件名与内容）
+    config_post_multipart_check = "on",
+    -- 请求体深度检测上限（字节），超过上限只记录日志不做深度扫描，避免影响大文件上传
+    config_post_max_size = 8388608,
+    -- multipart 分段数量上限，超过视为异常分段
+    config_post_max_parts = 200,
+    -- enable/disable 畸形请求检测（TE/CL 走私、重复 Content-Length、裸 CRLF、非法编码等）
+    config_malformed_check = "on",
     -- config waf output redirect/html/jinghuashuiyue
     config_waf_model = "html",
     -- if config_waf_output ,setting url

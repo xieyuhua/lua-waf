@@ -1,0 +1,14 @@
+import { api } from './client'
+
+/** WAF 规则接口 */
+export const ruleApi = {
+  /** 规则类型（含各类型数量），用于生成子菜单 */
+  types: () => api.get('/rules/types'),
+  /** 按类型/关键词查询规则 */
+  list: (params) => api.get('/rules', params),
+  create: (payload) => api.post('/rules', payload),
+  update: (id, payload) => api.put(`/rules/${id}`, payload),
+  remove: (id) => api.del(`/rules/${id}`),
+  validate: (payload) => api.post('/rules/validate', payload),
+  sync: () => api.post('/rules/sync')
+}
