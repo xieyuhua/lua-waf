@@ -82,7 +82,7 @@ func (s *Server) register(mux *http.ServeMux) {
 	(&SlowSQLHandler{SlowSQL: s.Deps.SlowSQL, Responder: Responder{Writer: s.Writer}, Writer: s.Writer}).Register(mux, routes)
 	(&AIHandler{AI: s.Deps.AI, Responder: Responder{Writer: s.Writer}, Writer: s.Writer}).Register(mux, routes)
 	(&MapHandler{Map: s.Deps.Map, Responder: Responder{Writer: s.Writer}}).Register(mux, routes)
-	(&SystemHandler{Cfg: s.Cfg, Rules: s.Deps.Rules, Settings: s.Deps.Settings, Responder: Responder{Writer: s.Writer}}).Register(mux, routes)
+	(&SystemHandler{Cfg: s.Cfg, Rules: s.Deps.Rules, Settings: s.Deps.Settings, FrontendVersion: s.frontendVersion(), Responder: Responder{Writer: s.Writer}}).Register(mux, routes)
 	(&SysConfigHandler{SysConfig: s.Deps.SysConfig, Writer: s.Writer, Responder: Responder{Writer: s.Writer}}).Register(mux, routes)
 	(&SyncHandler{Sync: s.Deps.Sync, Sites: s.Deps.Sites, Rules: s.Deps.Rules, Writer: s.Writer}).Register(mux)
 

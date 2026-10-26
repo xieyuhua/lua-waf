@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { logApi } from '../api/log'
 import { ruleApi } from '../api/rule'
+import { aiApi } from '../api/ai'
 import { ruleStore } from '../stores/rules'
 import { aiResultStore } from '../stores/ai'
 import { renderMarkdown } from '../utils/markdown'
@@ -93,10 +94,18 @@ function handleSelectionChange(value) {
   selection.value = value
 }
 
-/** 打开详情 */
-function openDetail(row) {
+/** 打开详情；若本地无研判结果，尝试从服务端缓存拉取（多端可见） */
+async function openDetail(row) {
   current.value = row
   detailVisible.value = true
+  if (!row || aiResultOf(row)) return
+
+  try {
+    const data = await aiApi.result(row.id)
+    if (data?.content) aiResultStore.save([row.id], '', data)
+  } catch (error) {
+    /* 没有服务端缓存时忽略，属正常情况 */
+  }
 }
 
 /** 单条日志已缓存的 AI 结果 */
@@ -314,7 +323,7 @@ onMounted(() => {
           style="margin-top: 16px; background: var(--waf-surface-2); box-shadow: none"
         >
           <div class="waf-card-head" style="margin-bottom: 8px">
-            <div class="waf-card-title"><span class="bar"></span> AI 研判结果（本地缓存 10 分钟）</div>
+            <div class="waf-card-title"><span class="bar"></span> AI 研判结果</div>
             <div class="waf-card-extra">{{ aiResultOf(current).result.model || '-' }}</div>
           </div>
           <div class="waf-markdown" v-html="renderMarkdown(aiResultOf(current).result.content)"></div>

@@ -9,5 +9,7 @@ export const aiApi = {
   /** 连通性测试 */
   test: () => api.post('/ai/test'),
   /** 分析指定日志 */
-  analyze: (payload) => api.post('/ai/analyze', payload)
+  analyze: (payload) => api.post('/ai/analyze', payload),
+  /** 查询某条日志在服务端缓存的研判结果（跨设备查看） */
+  result: (logId) => api.get(`/ai/results/${logId}`)
 }

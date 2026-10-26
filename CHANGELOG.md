@@ -17,6 +17,10 @@
 
 ### 修复
 
+- **跨设备/跨浏览器看不到历史研判结果**：新增 `GET /api/ai/results/{logId}` 与
+  `AnalyzeCache.FindByLog`，日志详情抽屉在本地无结果时自动拉服务端缓存并落到本地，手机可直接查看电脑上的分析；
+  侧边栏底部显示 `X-WAF v版本 · fe-构建指纹`（`/api/system/info` 新增 `frontend_version`），
+  便于确认浏览器加载的是哪一版前端。
 - **移动端看不到 AI 研判结果**：长结论会把弹窗撑到 1300px 以上，而 `el-dialog__body`
   是 `overflow: visible`，屏幕外的内容无法滚动查看。现在 ≤900px 时 `.el-dialog` 限高 92vh、
   改为 flex 布局并让正文 `overflow-y: auto`（页脚按钮固定），同时结果出现后自动滚到「研判结果」区；

@@ -356,6 +356,17 @@
 
 ## 9. AI `/api/ai`
 
+### GET /api/ai/results/{logId}
+
+返回某条日志在**服务端缓存**中的研判结果，用于跨设备查看（例如电脑上分析、手机上打开详情）：
+
+```json
+{ "content": "结论：……", "model": "gpt-4o-mini", "log_count": 2,
+  "usage": { "total_tokens": 1120 }, "cached": true, "cached_at": "2026-10-26 15:41:45" }
+```
+
+缓存有效期内无记录时返回 `1004`（README 提示「请重新分析」）。
+
 ### GET /api/ai/config
 
 ```json

@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"io/fs"
 	"mime"
 	"net/http"
@@ -76,4 +78,20 @@ func (s *Server) writeAsset(w http.ResponseWriter, r *http.Request, name string,
 		w.Header().Set("Cache-Control", "no-cache")
 	}
 	http.ServeContent(w, r, name, info.ModTime(), bytes.NewReader(data))
+}
+
+// frontendVersion 返回内嵌前端 index.html 的短指纹，用于确认浏览器加载的是哪一版构建。
+func (s *Server) frontendVersion() string {
+	if s.Static == nil {
+		return ""
+	}
+
+	data, err := fs.ReadFile(s.Static, "index.html")
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+
+	// index.html 只引用带哈希的资源名，其指纹即可代表整次构建
+	return hex.EncodeToString(sum[:4])
 }

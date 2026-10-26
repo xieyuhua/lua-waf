@@ -321,9 +321,28 @@ func (s *AIService) AnalyzeLogs(ctx context.Context, req AnalyzeLogsRequest) (*A
 		Usage:     usage,
 	}
 	if s.Cache != nil {
-		s.Cache.Set(cacheKey, *result, time.Duration(cfg.CacheMinutes)*time.Minute)
+		s.Cache.Set(cacheKey, *result, req.LogIds, time.Duration(cfg.CacheMinutes)*time.Minute)
 	}
 	return result, nil
+}
+
+// CachedResult 按单条日志查询服务端缓存的研判结果，用于多端查看（手机/其他浏览器）。
+func (s *AIService) CachedResult(ctx context.Context, logID int64) (*AnalyzeLogsResult, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if s.Cache == nil {
+		return nil, ErrNotFound.New("暂无研判结果")
+	}
+
+	result, storedAt, ok := s.Cache.FindByLog(logID)
+	if !ok {
+		return nil, ErrNotFound.New("该日志暂无研判结果（可能已超过缓存有效期，请重新分析）")
+	}
+
+	result.Cached = true
+	result.CachedAt = storedAt.Format("2006-01-02 15:04:05")
+	return &result, nil
 }
 
 // chat 执行一次对话补全请求。

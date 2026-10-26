@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ruleStore } from '../stores/rules'
+import { systemApi } from '../api/system'
 
 const props = defineProps({
   collapsed: { type: Boolean, default: false },
@@ -10,6 +11,20 @@ const props = defineProps({
 const emit = defineEmits(['navigate'])
 
 const route = useRoute()
+const versionInfo = ref(null)
+const footText = computed(() => {
+  const version = versionInfo.value?.version || '2.0.0'
+  const frontend = versionInfo.value?.frontend_version
+  return frontend ? `X-WAF v${version} · fe-${frontend}` : `X-WAF v${version}`
+})
+
+onMounted(async () => {
+  try {
+    versionInfo.value = await systemApi.info()
+  } catch (error) {
+    /* 忽略：不影响菜单展示 */
+  }
+})
 const router = useRouter()
 
 /** 基础导航分组 */
@@ -147,6 +162,6 @@ onMounted(() => {
       </template>
     </nav>
 
-    <div v-show="!collapsed" class="waf-sidebar-foot">X-WAF · 分层架构 v2</div>
+    <div v-show="!collapsed" class="waf-sidebar-foot">{{ footText }}</div>
   </aside>
 </template>

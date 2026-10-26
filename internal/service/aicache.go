@@ -28,6 +28,7 @@ type AnalyzeCache struct {
 // analyzeCacheEntry 是一条缓存记录。
 type analyzeCacheEntry struct {
 	result    AnalyzeLogsResult
+	logIds    []int64
 	storedAt  time.Time
 	expiresAt time.Time
 }
@@ -78,7 +79,7 @@ func (c *AnalyzeCache) Get(key string) (AnalyzeLogsResult, time.Time, bool) {
 }
 
 // Set 写入缓存；ttl <= 0 表示不缓存。
-func (c *AnalyzeCache) Set(key string, result AnalyzeLogsResult, ttl time.Duration) {
+func (c *AnalyzeCache) Set(key string, result AnalyzeLogsResult, logIds []int64, ttl time.Duration) {
 	if key == "" || ttl <= 0 {
 		return
 	}
@@ -94,9 +95,49 @@ func (c *AnalyzeCache) Set(key string, result AnalyzeLogsResult, ttl time.Durati
 	result.Cached = false
 	result.CachedAt = ""
 
+	ids := make([]int64, len(logIds))
+	copy(ids, logIds)
+
 	now := c.now()
-	c.entries[key] = analyzeCacheEntry{result: result, storedAt: now, expiresAt: now.Add(ttl)}
+	c.entries[key] = analyzeCacheEntry{result: result, logIds: ids, storedAt: now, expiresAt: now.Add(ttl)}
 	c.evictLocked(now)
+}
+
+// FindByLog 按单条日志查找最近的缓存结果（供其他设备/其他会话查看）。
+func (c *AnalyzeCache) FindByLog(logID int64) (AnalyzeLogsResult, time.Time, bool) {
+	if logID <= 0 {
+		return AnalyzeLogsResult{}, time.Time{}, false
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	now := c.now()
+	var (
+		found   AnalyzeLogsResult
+		at      time.Time
+		matched bool
+	)
+	for key, entry := range c.entries {
+		if !now.Before(entry.expiresAt) {
+			delete(c.entries, key)
+			continue
+		}
+		contains := false
+		for _, id := range entry.logIds {
+			if id == logID {
+				contains = true
+				break
+			}
+		}
+		if !contains {
+			continue
+		}
+		if !matched || entry.storedAt.After(at) {
+			found, at, matched = entry.result, entry.storedAt, true
+		}
+	}
+	return found, at, matched
 }
 
 // Purge 清空缓存（配置变更后调用）。
