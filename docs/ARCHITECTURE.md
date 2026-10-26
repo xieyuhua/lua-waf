@@ -156,7 +156,45 @@ web/src/
 - `RULE_PATH`（后台）必须与 lua `config_rule_dir` 完全一致，含尾斜杠，否则规则写了却读不到。
 - 只有修改 `lua_shared_dict` 名称/大小、升级 nginx 二进制等场景才需要完全重启。
 
-## 10. 文档地图
+## 10. 配置热更新与建表策略
+
+### 10.1 运行配置（`/api/system/config`）
+
+`service.SystemConfigService` 持有运行中的 `*config.Config` 指针、`config.Loader`、`config.Writer`
+与一个 `ConfigApplier` 回调：
+
+```
+PUT /api/system/config
+  → merge 入参（字符串留空=保持，密钥掩码=保持）
+  → cfg.Validate()
+  → Writer.Save（备份 .bak → 临时文件 → rename）
+  → *cfg = 新值（指针不变，各层共享）
+  → Applier.Apply(cfg)   ← 组合根 internal/app/runtime.go 实现
+```
+
+`runtimeConfig.Apply` 会就地更新：nginx 管理器的路径与 DryRun、各服务的分页大小、慢 SQL 阈值、
+同步密钥、验证码 TTL、会话 TTL/密钥/Secure、CSRF Secure。
+**需重启**的字段（`RUN_MODE`、`HTTP_PORT`、`database.*`、`SESSION_SECRET`）只在响应
+`restart_required` 中提示，不在进程内切换，避免监听端口/连接池被动变更。
+
+会话密钥来源被记录在 `Config.SessionSecretSource`（file / env / generated）：
+只有 file 来源才写回文件，避免把环境变量或启动时随机生成的密钥落盘。
+
+### 10.2 建表策略
+
+`repository/mysql.Store.ensureTables` 逐张检查表是否存在：
+
+| 情况 | 行为 |
+| --- | --- |
+| 表已存在 | 跳过，**不做 Sync2 / 不做 ALTER**（线上表结构不会被程序改动） |
+| 表不存在且 `AUTO_MIGRATE = true` | `Sync2` 创建该表 |
+| 表不存在且 `AUTO_MIGRATE = false` | 启动失败，提示手工建表 |
+| `waf_log` | 始终不创建（由 openresty 侧维护），仅检测并告警 |
+
+字段新增（如 v2 的 `slow_sql`、`setting`）通过「新表创建」完成；**已有表的列变更需要人工迁移**，
+这是为了让后台不会在生产库上隐式执行 DDL。
+
+## 11. 文档地图
 
 | 文档 | 面向 |
 | --- | --- |

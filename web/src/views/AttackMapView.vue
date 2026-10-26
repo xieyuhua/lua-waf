@@ -5,6 +5,7 @@ import * as echarts from 'echarts'
 import worldGeo from '../assets/world.geo.json'
 import ChartPanel from '../components/ChartPanel.vue'
 import { dashboardApi } from '../api/dashboard'
+import { themeStore } from '../stores/theme'
 
 const loading = ref(true)
 const snapshot = ref(null)
@@ -44,6 +45,8 @@ function switchRange(value) {
 const points = computed(() =>
   (snapshot.value?.points ?? []).filter((item) => item.lat !== 0 || item.lon !== 0)
 )
+
+const palette = computed(() => themeStore.chartPalette.value)
 
 const mapOption = computed(() => ({
   backgroundColor: 'transparent',
@@ -126,8 +129,8 @@ const trendOption = computed(() => {
             x2: 0,
             y2: 1,
             colorStops: [
-              { offset: 0, color: '#8b5cf6' },
-              { offset: 1, color: 'rgba(139,92,246,0.15)' }
+              { offset: 0, color: palette.value.accent },
+              { offset: 1, color: `${palette.value.accent}26` }
             ]
           }
         }

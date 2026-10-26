@@ -2,7 +2,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { authApi } from '../api/auth'
-import { dashboardApi } from '../api/dashboard'
+import { systemApi } from '../api/system'
 import { authStore } from '../stores/auth'
 import { formatTime } from '../utils/format'
 
@@ -14,7 +14,7 @@ const form = reactive({ old_password: '', new_password: '', confirm: '' })
 /** 加载账号与系统信息 */
 async function load() {
   try {
-    const [profileData, infoData] = await Promise.all([authApi.profile(), dashboardApi.systemInfo()])
+    const [profileData, infoData] = await Promise.all([authApi.profile(), systemApi.info()])
     profile.value = profileData
     info.value = infoData
     authStore.state.user = profileData

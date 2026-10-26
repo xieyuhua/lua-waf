@@ -29,21 +29,23 @@ web/
     ├── api/
     │   ├── client.js       # fetch 封装：CSRF、统一信封、ApiError、401 回调
     │   ├── auth.js  site.js  rule.js  user.js  log.js
-    │   └── slowsql.js  ai.js  dashboard.js
+    │   └── slowsql.js  ai.js  dashboard.js  system.js
     ├── router/index.js     # 路由表 + 登录守卫 + 标题
     ├── stores/
     │   ├── auth.js         # 登录态（reactive + computed）
-    │   ├── theme.js        # 亮/暗主题，持久化 localStorage
+    │   ├── theme.js        # 外观模式 + 主题色 + 图表调色板
     │   └── rules.js        # 规则类型缓存（侧边栏子菜单与规则页共用）
     ├── layouts/AdminLayout.vue   # 侧栏 + 顶栏 + 内容区（移动端抽屉）
     ├── components/
     │   ├── AppSidebar.vue  AppHeader.vue
     │   ├── StatCard.vue    ChartPanel.vue
+    │   ├── ThemePanel.vue  ThemeDrawer.vue
     │   └── AiAnalyzeDialog.vue
     ├── views/              # 每个菜单一个页面
     │   ├── LoginView.vue   DashboardView.vue   AttackMapView.vue
     │   ├── SitesView.vue   RulesView.vue       UsersView.vue
     │   ├── LogsView.vue    SlowSqlView.vue
+    │   ├── SystemConfigView.vue  AppearanceView.vue
     │   ├── AiSettingsView.vue  AccountView.vue  ForbiddenView.vue
     ├── styles/main.css     # 设计系统（色板/卡片/导航/表格/动效/暗色）
     ├── utils/format.js     # 时间、数字、耗时、SQL 语句格式化
@@ -77,8 +79,24 @@ npm run gen:map      # 重新生成 src/assets/world.geo.json
 | store | 内容 | 使用方 |
 | --- | --- | --- |
 | `stores/auth.js` | `user`、`isLoggedIn`、`login/logout/fetchProfile` | 路由守卫、顶栏、账号页 |
-| `stores/theme.js` | `dark`，切换时写入 `html.dark` 与 localStorage | 顶栏、登录页 |
+| `stores/theme.js` | 外观模式、主题色、图表调色板 | 顶栏、登录页、外观设置页、图表 |
 | `stores/rules.js` | 规则类型与数量（`load/grouped/find`） | 侧边栏子菜单、规则页类型切换 |
+
+## 主题系统
+
+`stores/theme.js` 负责主题状态与落地：
+
+| 能力 | 说明 |
+| --- | --- |
+| 外观模式 | `light` / `dark` / `system`，`system` 通过 `matchMedia('(prefers-color-scheme: dark)')` 跟随系统并监听变化 |
+| 主题色 | 6 套预设（靛蓝/紫罗兰/晴空/翡翠/琥珀/玫瑰），同时驱动 `--waf-primary`、`--waf-gradient` 与 Element Plus 的 `--el-color-primary` 及 light-3/5/7/8/9、dark-2 色阶 |
+| 持久化 | `localStorage['wafadmin.theme'] = {"mode":"dark","accent":"violet"}`，兼容早期只存 `"dark"/"light"` 的格式 |
+| 图表联动 | `themeStore.chartPalette` 暴露 `primary/accent/series`，页面在 `computed` 中使用，切换主题色时图表自动重绘 |
+| 快捷入口 | 顶栏调色板图标打开 `components/ThemeDrawer.vue`；太阳/月亮按钮一键切换亮暗 |
+
+实现要点：主题色由 JS 在 `documentElement` 上以内联 CSS 变量写入（优先级高于 Element Plus 暗色主题的定义），
+色阶用 `mix(primary, #fff/#000, ratio)` 计算，避免为每个色板手写一套变量。
+`html.dark` 负责暗色，`html[data-accent]` 便于个别样式挂载。
 
 ## 路由与菜单
 
@@ -92,6 +110,8 @@ npm run gen:map      # 重新生成 src/assets/world.geo.json
 | `/users` | 账号管理 | 防护配置 |
 | `/logs` | 攻击日志 | 审计分析 |
 | `/slow-sql` | 慢 SQL 统计 | 审计分析 |
+| `/settings/system` | 运行配置（编辑 conf/app.ini） | 系统设置 |
+| `/settings/appearance` | 外观设置（主题切换） | 系统设置 |
 | `/settings/ai` | AI 设置 | 系统设置 |
 | `/settings/account` | 账号设置 | 系统设置 |
 

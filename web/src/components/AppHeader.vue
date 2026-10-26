@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { authStore } from '../stores/auth'
 import { themeStore } from '../stores/theme'
+import ThemeDrawer from './ThemeDrawer.vue'
 
 defineProps({ collapsed: { type: Boolean, default: false } })
 const emit = defineEmits(['toggle', 'refresh'])
@@ -12,6 +13,7 @@ const route = useRoute()
 const router = useRouter()
 
 const keyword = ref('')
+const themeVisible = ref(false)
 const title = computed(() => route.meta.title ?? 'X-WAF 管理台')
 const crumb = computed(() => route.meta.crumb ?? '')
 const initial = computed(() => (authStore.displayName.value || 'A').slice(0, 1).toUpperCase())
@@ -76,6 +78,10 @@ async function handleCommand(command) {
       <el-icon><Refresh /></el-icon>
     </button>
 
+    <button class="waf-icon-btn" title="主题与外观" @click="themeVisible = true">
+      <el-icon><Brush /></el-icon>
+    </button>
+
     <button class="waf-icon-btn" :title="themeStore.dark.value ? '切换亮色' : '切换暗色'" @click="themeStore.toggle()">
       <el-icon>
         <component :is="themeStore.dark.value ? 'Sunny' : 'Moon'" />
@@ -99,6 +105,8 @@ async function handleCommand(command) {
         </el-dropdown-menu>
       </template>
     </el-dropdown>
+
+    <ThemeDrawer v-model="themeVisible" />
   </header>
 </template>
 

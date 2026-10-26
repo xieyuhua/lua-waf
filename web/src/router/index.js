@@ -57,6 +57,18 @@ export const routes = [
         meta: { title: '慢 SQL 统计', crumb: '审计分析 / 慢 SQL' }
       },
       {
+        path: 'settings/appearance',
+        name: 'appearance',
+        component: () => import('../views/AppearanceView.vue'),
+        meta: { title: '外观设置', crumb: '系统设置 / 外观设置' }
+      },
+      {
+        path: 'settings/system',
+        name: 'system-config',
+        component: () => import('../views/SystemConfigView.vue'),
+        meta: { title: '运行配置', crumb: '系统设置 / 运行配置' }
+      },
+      {
         path: 'settings/ai',
         name: 'ai-settings',
         component: () => import('../views/AiSettingsView.vue'),

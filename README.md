@@ -37,6 +37,8 @@ v2 相比 1.x 做了两件大事：
 | 慢 SQL 统计 | 时间范围查询（预设 + 自定义）、总数/均值/P95/超 1s 统计、耗时排行、明细与清理 |
 | AI 设置 | OpenAI 兼容接口配置（地址/密钥/模型/温度/超时/提示词），连通性测试 |
 | 账号管理 | 后台账号 CRUD、口令修改、登录失败限流、图形验证码、CSRF 防护 |
+| 运行配置 | 网页编辑 `conf/app.ini`（端口、路径、密钥、分页、慢 SQL 阈值、数据库），保存即写回文件并热更新，标注需重启项，支持查看原文与从磁盘重载 |
+| 外观设置 | 亮色 / 暗色 / 跟随系统 + 6 套主题色，顶栏一键切换，设置本地持久化 |
 
 ---
 
@@ -165,6 +167,11 @@ go vet ./...
 | security | `SESSION_SECRET` | 会话签名密钥，留空则每次启动随机（重启需重新登录） |
 | security | `SESSION_TTL` / `SESSION_SECURE` / `CAPTCHA_TTL` | 会话有效期 / HTTPS 下设为 true / 验证码有效期 |
 | monitor | `SLOW_SQL_MS` | 后台自身 SQL 慢查询阈值（毫秒） |
+| database | `AUTO_MIGRATE` | 是否允许自动建表（默认 true）。**仅在表不存在时创建，已存在的表不做任何结构同步** |
+
+> 建表策略：启动时逐张检查 `site` / `rules` / `user` / `slow_sql` / `setting`，
+> 存在的表直接跳过（不会 ALTER、不会重建主键），不存在的表才创建；`waf_log` 由 openresty 侧维护，后台只读。
+> 关闭 `AUTO_MIGRATE` 后若缺表则启动报错，需手工初始化。
 
 环境变量可覆盖：`WAF_CONFIG`、`WAF_RUN_MODE`、`WAF_HTTP_PORT`、`WAF_API_KEY`、
 `WAF_SESSION_SECRET`、`WAF_DB_HOST`、`WAF_DB_USER`、`WAF_DB_PASSWD`、`WAF_DB_NAME`。
@@ -203,6 +210,9 @@ go vet ./...
 | POST | `/api/ai/test` | 连通性测试 |
 | POST | `/api/ai/analyze` | 日志 AI 研判（`log_ids` / `question`） |
 | GET | `/api/system/info` | 运行信息 |
+| GET/PUT | `/api/system/config` | 读取 / 保存运行配置（写回 ini 并热更新） |
+| POST | `/api/system/config/reload` | 从磁盘重新加载配置 |
+| GET | `/api/system/config/raw` | 查看配置文件原文 |
 | GET | `/api/sync/site`、`/api/sync/rule` | 节点同步回调（签名校验，兼容 1.x `/api/site/sync/`、`/api/rule/sync/`） |
 | POST | `/api/sync/slow-sql` | 外部上报慢 SQL（签名校验） |
 

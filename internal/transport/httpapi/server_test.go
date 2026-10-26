@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -49,6 +50,7 @@ func newHarness(t *testing.T) *harness {
 		PageSize:         10,
 		HTTPPort:         5000,
 		APIServers:       []string{"127.0.0.1"},
+		APIKey:           "test-api-key-1234567890",
 		NginxBin:         "nginx",
 		NginxVhosts:      "/tmp/vhosts",
 		SSLCertDir:       "/tmp/cert",
@@ -73,6 +75,12 @@ func newHarness(t *testing.T) *harness {
 	slow := &service.SlowSQLService{Repo: repos.SlowSQL, Threshold: cfg.SlowSQLThreshold, PageSize: cfg.PageSize}
 
 	captchaManager := &captcha.Manager{TTL: cfg.CaptchaTTL, Length: 4}
+	configFile := filepath.Join(t.TempDir(), "app.ini")
+	sysConfig := &service.SystemConfigService{
+		Current: cfg,
+		Loader:  &config.Loader{Path: configFile},
+		Writer:  &config.Writer{Path: configFile},
+	}
 	sessionManager := &session.Manager{
 		CookieName: "waf_session",
 		Secret:     []byte(cfg.SessionSecret),
@@ -99,9 +107,10 @@ func newHarness(t *testing.T) *harness {
 				Sites: repos.Site, Rules: repos.Rule, Users: repos.User,
 				Logs: repos.Log, Slow: repos.SlowSQL, PageSize: cfg.PageSize,
 			},
-			AI:       &service.AIService{Settings: settings, Logs: repos.Log},
-			Map:      &service.AttackMapService{Logs: repos.Log, Sites: repos.Site, Resolver: geo.Default},
-			Settings: settings,
+			AI:        &service.AIService{Settings: settings, Logs: repos.Log},
+			Map:       &service.AttackMapService{Logs: repos.Log, Sites: repos.Site, Resolver: geo.Default},
+			Settings:  settings,
+			SysConfig: sysConfig,
 			Sync: &service.SyncService{
 				Cfg:    cfg,
 				Sites:  sites,

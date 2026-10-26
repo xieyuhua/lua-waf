@@ -4,7 +4,5 @@ import { api } from './client'
 export const dashboardApi = {
   summary: () => api.get('/dashboard/summary'),
   /** 攻击地图快照，range 取 today / all */
-  attackMap: (range = 'all') => api.get('/attack-map', { range }),
-  /** 系统运行信息 */
-  systemInfo: () => api.get('/system/info')
+  attackMap: (range = 'all') => api.get('/attack-map', { range })
 }

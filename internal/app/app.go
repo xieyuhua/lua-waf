@@ -80,11 +80,28 @@ func New(opts Options) (*App, error) {
 	}
 	builder.wireSlowSQL(observer, deps)
 
+	// 会话与 CSRF 需要被热更新引用，因此先于 Server 构造
+	sessionManager := builder.sessionManager()
+	csrfGuard := &httpapi.CSRFGuard{Secure: cfg.SessionSecure}
+
+	// 运行配置服务：读写 conf/app.ini 并把变更热更新到各服务
+	deps.SysConfig = &service.SystemConfigService{
+		Current: cfg,
+		Loader:  loader,
+		Writer:  &config.Writer{Path: configPath(cfg)},
+		Applier: &runtimeConfig{
+			nginx:   builder.nginxManager(),
+			deps:    deps,
+			session: sessionManager,
+			csrf:    csrfGuard,
+		},
+	}
+
 	server := &httpapi.Server{
 		Cfg:     cfg,
 		Deps:    *deps,
-		Session: builder.sessionManager(),
-		CSRF:    &httpapi.CSRFGuard{Secure: cfg.SessionSecure},
+		Session: sessionManager,
+		CSRF:    csrfGuard,
 		Writer:  response.Writer{},
 		Static:  opts.Static,
 	}
@@ -139,6 +156,8 @@ func (a *App) Shutdown(ctx context.Context) error {
 type builder struct {
 	cfg     *config.Config
 	closers []func() error
+	// nginx 为共享的 nginx 配置管理器（热更新与配置下发共用同一实例）。
+	nginx *nginx.Manager
 }
 
 // repositories 按运行模式创建仓储实现。
@@ -247,9 +266,12 @@ func (b *builder) sessionManager() *session.Manager {
 	}
 }
 
-// nginxManager 构造 nginx 配置管理器；演示模式只渲染不落盘。
+// nginxManager 构造（并缓存）nginx 配置管理器；演示模式只渲染不落盘。
 func (b *builder) nginxManager() *nginx.Manager {
-	return &nginx.Manager{
+	if b.nginx != nil {
+		return b.nginx
+	}
+	b.nginx = &nginx.Manager{
 		Bin:       b.cfg.NginxBin,
 		VhostsDir: b.cfg.NginxVhosts,
 		CertDir:   b.cfg.SSLCertDir,
@@ -257,6 +279,7 @@ func (b *builder) nginxManager() *nginx.Manager {
 		LogDir:    b.cfg.WafLogDir,
 		DryRun:    b.cfg.IsDemo(),
 	}
+	return b.nginx
 }
 
 // close 释放已获取的外部资源。

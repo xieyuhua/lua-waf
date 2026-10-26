@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus'
 import StatCard from '../components/StatCard.vue'
 import ChartPanel from '../components/ChartPanel.vue'
 import { dashboardApi } from '../api/dashboard'
+import { themeStore } from '../stores/theme'
 
 const loading = ref(true)
 const summary = ref(null)
@@ -19,6 +20,8 @@ async function load() {
     loading.value = false
   }
 }
+
+const palette = computed(() => themeStore.chartPalette.value)
 
 const trendOption = computed(() => {
   const trend = summary.value?.trend ?? []
@@ -45,8 +48,8 @@ const trendOption = computed(() => {
         symbol: 'circle',
         symbolSize: 6,
         data: trend.map((item) => item.num),
-        lineStyle: { width: 3, color: '#6366f1' },
-        itemStyle: { color: '#6366f1' },
+        lineStyle: { width: 3, color: palette.value.primary },
+        itemStyle: { color: palette.value.primary },
         areaStyle: {
           color: {
             type: 'linear',
@@ -55,8 +58,8 @@ const trendOption = computed(() => {
             x2: 0,
             y2: 1,
             colorStops: [
-              { offset: 0, color: 'rgba(99,102,241,0.35)' },
-              { offset: 1, color: 'rgba(99,102,241,0.02)' }
+              { offset: 0, color: `${palette.value.primary}59` },
+              { offset: 1, color: `${palette.value.primary}05` }
             ]
           }
         }
@@ -70,7 +73,7 @@ const typeOption = computed(() => {
   return {
     tooltip: { trigger: 'item' },
     legend: { bottom: 0, icon: 'circle', textStyle: { color: '#8f9bb3', fontSize: 11 }, itemWidth: 8, itemHeight: 8 },
-    color: ['#6366f1', '#8b5cf6', '#38bdf8', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#14b8a6'],
+    color: palette.value.series,
     series: [
       {
         name: '今日攻击类型',

@@ -23,6 +23,15 @@ const (
 	ModeProd = "prod"
 )
 
+// 会话密钥来源。写回配置文件时只有 file 来源才会覆盖该键，
+// 避免把环境变量或启动时随机生成的密钥落盘。
+const (
+	SecretSourceFile      = "file"
+	SecretSourceEnv       = "env"
+	SecretSourceGenerated = "generated"
+	SecretSourceEmpty     = "empty"
+)
+
 // Database 描述 MySQL 连接参数。
 type Database struct {
 	Host     string
@@ -30,6 +39,8 @@ type Database struct {
 	User     string
 	Password string
 	Name     string
+	// AutoMigrate 为 true 时，仅当表不存在才自动建表；已存在的表不做任何结构同步。
+	AutoMigrate bool
 }
 
 // DSN 组装 go-sql-driver/mysql 连接串。
@@ -62,6 +73,9 @@ type Config struct {
 	SessionSecure bool
 	CaptchaTTL    time.Duration
 
+	// SessionSecretSource 记录会话密钥来源（file / env / generated / empty）。
+	SessionSecretSource string
+
 	// SlowSQLThreshold 为后台自身慢 SQL 的采集阈值。
 	SlowSQLThreshold time.Duration
 
@@ -81,9 +95,13 @@ func (c *Config) Addr() string { return fmt.Sprintf(":%d", c.HTTPPort) }
 // 返回 true 表示本次为随机生成，重启后既有会话将失效。
 func (c *Config) EnsureSessionSecret() bool {
 	if strings.TrimSpace(c.SessionSecret) != "" {
+		if c.SessionSecretSource == "" {
+			c.SessionSecretSource = SecretSourceFile
+		}
 		return false
 	}
 	buf := make([]byte, 32)
+	c.SessionSecretSource = SecretSourceGenerated
 	if _, err := rand.Read(buf); err != nil {
 		c.SessionSecret = fmt.Sprintf("wafadmin-fallback-%d", time.Now().UnixNano())
 		return true
@@ -148,10 +166,11 @@ func (l *Loader) defaults() *Config {
 		CaptchaTTL:       5 * time.Minute,
 		SlowSQLThreshold: 200 * time.Millisecond,
 		Database: Database{
-			Host: "127.0.0.1",
-			Port: 3306,
-			User: "waf",
-			Name: "waf",
+			Host:        "127.0.0.1",
+			Port:        3306,
+			User:        "waf",
+			Name:        "waf",
+			AutoMigrate: true,
 		},
 	}
 }
@@ -179,6 +198,10 @@ func (l *Loader) applyINI(cfg *Config, file *ini.File) {
 
 	security := file.Section("security")
 	cfg.SessionSecret = security.Key("SESSION_SECRET").MustString(cfg.SessionSecret)
+	cfg.SessionSecretSource = SecretSourceEmpty
+	if strings.TrimSpace(cfg.SessionSecret) != "" {
+		cfg.SessionSecretSource = SecretSourceFile
+	}
 	cfg.SessionSecure = security.Key("SESSION_SECURE").MustBool(false)
 	if ttl, err := time.ParseDuration(security.Key("SESSION_TTL").MustString(cfg.SessionTTL.String())); err == nil {
 		cfg.SessionTTL = ttl
@@ -194,6 +217,7 @@ func (l *Loader) applyINI(cfg *Config, file *ini.File) {
 	host, port := splitHostPort(db.Key("HOST").MustString(""), cfg.Database.Port)
 	cfg.Database.Host = host
 	cfg.Database.Port = db.Key("PORT").MustInt(port)
+	cfg.Database.AutoMigrate = db.Key("AUTO_MIGRATE").MustBool(true)
 }
 
 // applyEnv 用环境变量覆盖配置，便于容器化部署。
@@ -211,6 +235,7 @@ func (l *Loader) applyEnv(cfg *Config) {
 	}
 	if v := l.env("WAF_SESSION_SECRET"); v != "" {
 		cfg.SessionSecret = v
+		cfg.SessionSecretSource = SecretSourceEnv
 	}
 	if v := l.env("WAF_DB_HOST"); v != "" {
 		host, port := splitHostPort(v, cfg.Database.Port)

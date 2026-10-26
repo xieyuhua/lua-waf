@@ -25,6 +25,7 @@ type Deps struct {
 	Map       *service.AttackMapService
 	Sync      *service.SyncService
 	Settings  *service.SettingService
+	SysConfig *service.SystemConfigService
 }
 
 // Routes 提供统一的中间件包装器，各 handler 按需使用。
@@ -82,6 +83,7 @@ func (s *Server) register(mux *http.ServeMux) {
 	(&AIHandler{AI: s.Deps.AI, Responder: Responder{Writer: s.Writer}, Writer: s.Writer}).Register(mux, routes)
 	(&MapHandler{Map: s.Deps.Map, Responder: Responder{Writer: s.Writer}}).Register(mux, routes)
 	(&SystemHandler{Cfg: s.Cfg, Rules: s.Deps.Rules, Settings: s.Deps.Settings, Responder: Responder{Writer: s.Writer}}).Register(mux, routes)
+	(&SysConfigHandler{SysConfig: s.Deps.SysConfig, Writer: s.Writer, Responder: Responder{Writer: s.Writer}}).Register(mux, routes)
 	(&SyncHandler{Sync: s.Deps.Sync, Sites: s.Deps.Sites, Rules: s.Deps.Rules, Writer: s.Writer}).Register(mux)
 
 	// 前端单页应用：未匹配到 API 的路径全部回落到 index.html

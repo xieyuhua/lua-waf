@@ -121,6 +121,59 @@
 
 `nginx_dry_run = true` 表示演示模式下只渲染配置、不写文件也不 reload。
 
+### GET /api/system/config
+
+读取运行配置（`security.SESSION_SECRET`、`API_KEY`、数据库口令均脱敏）。
+
+```json
+{
+  "source": "conf/app.ini",
+  "file": "conf/app.ini",
+  "writable": true,
+  "config": {
+    "run_mode": "prod", "http_port": 5002,
+    "api_key": "chan********ease", "api_servers": ["127.0.0.1"],
+    "nginx_bin": "/www/server/nginx/sbin/nginx",
+    "nginx_vhosts": "/www/server/panel/vhost/nginx/",
+    "ssl_cert_dir": "/www/server/panel/vhost/cert",
+    "rule_path": "/www/server/nginx/x-waf/rules/",
+    "waf_log_dir": "/www/wwwlogs/waf",
+    "page_size": 10,
+    "session_secret": "********", "session_ttl": "12h0m0s", "session_secure": false,
+    "captcha_ttl": "5m0s", "slow_sql_ms": 200,
+    "database": { "host": "127.0.0.1", "port": 3306, "user": "waf", "password": "********", "name": "waf" }
+  },
+  "restart_required": []
+}
+```
+
+### PUT /api/system/config
+
+请求体与 `config` 同构；字符串字段留空表示保持原值，密钥字段传脱敏串（含 `****`）也视为保持原值。
+保存后写入 ini（先备份 `app.ini.bak`，再临时文件 rename），并**立即热更新**可热更新的项。
+
+```json
+{ "page_size": 20, "slow_sql_ms": 300, "session_ttl": "8h", "api_servers": ["127.0.0.1", "10.0.0.9"] }
+```
+
+响应会把本次需要重启才生效的字段列在 `restart_required`：
+
+```json
+{ "file": "conf/app.ini", "writable": true, "config": { ... }, "restart_required": ["HTTP_PORT（监听端口）"] }
+```
+
+热更新范围：nginx 路径与演示开关、分页大小、慢 SQL 阈值、节点密钥、验证码有效期、
+会话有效期/密钥/安全标志（改密钥会使既有会话失效）。
+需重启：`RUN_MODE`、`HTTP_PORT`、`database.*`、`security.SESSION_SECRET`。
+
+### POST /api/system/config/reload
+
+丢弃内存中的配置，从磁盘重新读取并应用（用于手工改过 ini 后同步）。响应同 `GET`。
+
+### GET /api/system/config/raw
+
+返回配置文件原文 `{ "content": "; wafadmin 配置文件\n..." }`。
+
 ---
 
 ## 4. 站点 `/api/sites`
