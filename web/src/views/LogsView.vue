@@ -5,6 +5,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { logApi } from '../api/log'
 import { ruleApi } from '../api/rule'
 import { ruleStore } from '../stores/rules'
+import { aiResultStore } from '../stores/ai'
 import { toBackendTime } from '../utils/format'
 import AiAnalyzeDialog from '../components/AiAnalyzeDialog.vue'
 import StatCard from '../components/StatCard.vue'
@@ -32,6 +33,7 @@ const overview = ref(null)
 
 const selection = ref([])
 const aiVisible = ref(false)
+const aiInitial = ref(null)
 const detailVisible = ref(false)
 const current = ref(null)
 
@@ -96,9 +98,15 @@ function openDetail(row) {
   detailVisible.value = true
 }
 
-/** 打开 AI 分析（单条） */
+/** 单条日志已缓存的 AI 结果 */
+function aiResultOf(row) {
+  return row ? aiResultStore.find(row.id) : null
+}
+
+/** 打开 AI 分析（单条），有缓存结果时直接展示 */
 function analyzeOne(row) {
   selection.value = [row]
+  aiInitial.value = aiResultOf(row)
   aiVisible.value = true
 }
 
@@ -108,6 +116,7 @@ function analyzeSelected() {
     ElMessage.warning('请先勾选要分析的日志')
     return
   }
+  aiInitial.value = null
   aiVisible.value = true
 }
 
@@ -256,7 +265,7 @@ onMounted(() => {
         <el-table-column label="操作" width="180" align="right" fixed="right">
           <template #default="{ row }">
             <el-button text type="primary" @click="openDetail(row)">详情</el-button>
-            <el-button text type="primary" @click="analyzeOne(row)">AI</el-button>
+            <el-button text type="primary" @click="analyzeOne(row)">{{ aiResultOf(row) ? '看结果' : 'AI' }}</el-button>
             <el-button text type="danger" @click="banIp(row)">封禁</el-button>
           </template>
         </el-table-column>
@@ -276,7 +285,7 @@ onMounted(() => {
       </div>
     </div>
 
-    <AiAnalyzeDialog v-model="aiVisible" :logs="selection" />
+    <AiAnalyzeDialog v-model="aiVisible" :logs="selection" :initial="aiInitial" />
 
     <el-drawer v-model="detailVisible" title="日志详情" size="520px">
       <template v-if="current">
@@ -298,6 +307,17 @@ onMounted(() => {
           </el-descriptions-item>
         </el-descriptions>
 
+        <div
+          v-if="aiResultOf(current)"
+          class="waf-card"
+          style="margin-top: 16px; background: var(--waf-surface-2); box-shadow: none"
+        >
+          <div class="waf-card-head" style="margin-bottom: 8px">
+            <div class="waf-card-title"><span class="bar"></span> AI 研判结果（本地缓存 10 分钟）</div>
+            <div class="waf-card-extra">{{ aiResultOf(current).result.model || '-' }}</div>
+          </div>
+          <div class="waf-markdown">{{ aiResultOf(current).result.content }}</div>
+        </div>
         <el-button type="primary" plain style="margin-top: 16px; width: 100%" @click="analyzeOne(current)">
           <el-icon><MagicStick /></el-icon> 交给 AI 分析这条日志
         </el-button>

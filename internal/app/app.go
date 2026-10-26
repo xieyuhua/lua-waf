@@ -212,7 +212,7 @@ func (b *builder) services(repos repository.Repositories) (*httpapi.Deps, error)
 			Logs: repos.Log, Slow: repos.SlowSQL, PageSize: b.cfg.PageSize,
 		},
 		SlowSQL:  slow,
-		AI:       &service.AIService{Settings: settings, Logs: repos.Log, Client: &http.Client{Timeout: 120 * time.Second}},
+		AI:       &service.AIService{Settings: settings, Logs: repos.Log, Client: &http.Client{Timeout: 120 * time.Second}, Cache: &service.AnalyzeCache{}},
 		Map:      &service.AttackMapService{Logs: repos.Log, Sites: repos.Site, Resolver: geo.Default},
 		Settings: settings,
 		Sync: &service.SyncService{

@@ -2,16 +2,20 @@
 import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { aiApi } from '../api/ai'
+import { aiResultStore } from '../stores/ai'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
-  logs: { type: Array, default: () => [] }
+  logs: { type: Array, default: () => [] },
+  /** 打开时直接展示的结果（来自本地缓存） */
+  initial: { type: Object, default: null }
 })
 const emit = defineEmits(['update:modelValue'])
 
 const loading = ref(false)
 const question = ref('')
 const result = ref(null)
+const fromCache = ref(false)
 
 const visible = computed({
   get: () => props.modelValue,
@@ -20,20 +24,42 @@ const visible = computed({
 
 const logCount = computed(() => props.logs.length)
 const logPreview = computed(() => props.logs.slice(0, 6))
+const cacheMinutes = computed(() => {
+  const at = result.value?.cached_at || result.value?.at
+  return at || ''
+})
 
-/** 触发 AI 分析 */
-async function run() {
+/** 触发 AI 分析；refresh 为 true 时跳过缓存 */
+async function run(refresh = false) {
   if (!props.logs.length) {
     ElMessage.warning('请先选择要分析的日志')
     return
   }
+
+  const ids = props.logs.map((item) => item.id)
+
+  // 先查本地缓存（10 分钟内同参数直接复用，不发请求）
+  if (!refresh) {
+    const local = aiResultStore.get(ids, question.value.trim())
+    if (local) {
+      result.value = local.result
+      fromCache.value = true
+      return
+    }
+  }
+
   loading.value = true
   result.value = null
+  fromCache.value = false
   try {
-    result.value = await aiApi.analyze({
-      log_ids: props.logs.map((item) => item.id),
-      question: question.value.trim()
+    const data = await aiApi.analyze({
+      log_ids: ids,
+      question: question.value.trim(),
+      refresh
     })
+    result.value = data
+    fromCache.value = Boolean(data.cached)
+    aiResultStore.save(ids, question.value.trim(), data)
   } catch (error) {
     ElMessage.error(error.message || 'AI 分析失败')
   } finally {
@@ -41,14 +67,26 @@ async function run() {
   }
 }
 
-// 关闭时重置状态
-watch(visible, (value) => {
-  if (!value) {
+/** 打开弹窗时优先展示已有缓存结果 */
+watch(
+  visible,
+  (value) => {
+    if (value) {
+      const local = props.initial || aiResultStore.get(props.logs.map((item) => item.id), '')
+      if (local && !result.value) {
+        result.value = local.result
+        fromCache.value = true
+        question.value = local.question || ''
+      }
+      return
+    }
     result.value = null
     question.value = ''
     loading.value = false
-  }
-})
+    fromCache.value = false
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
@@ -75,18 +113,25 @@ watch(visible, (value) => {
       style="margin-top: 14px"
     />
 
-    <div style="margin-top: 14px; display: flex; gap: 10px; align-items: center">
-      <el-button type="primary" :loading="loading" @click="run">
+    <div style="margin-top: 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap">
+      <el-button type="primary" :loading="loading" @click="run(false)">
         <el-icon><MagicStick /></el-icon>
-        开始分析
+        {{ result ? '重新分析（用缓存）' : '开始分析' }}
       </el-button>
-      <span class="waf-muted" style="font-size: 12px">分析需要先在「AI 设置」中配置模型</span>
+      <el-button v-if="result" :loading="loading" @click="run(true)">
+        <el-icon><RefreshRight /></el-icon>
+        忽略缓存重新请求
+      </el-button>
+      <span class="waf-muted" style="font-size: 12px">分析需先在「AI 设置」中配置模型</span>
     </div>
 
     <div v-if="result" style="margin-top: 18px">
       <div class="waf-card-head">
         <div class="waf-card-title"><span class="bar"></span> 研判结果</div>
         <div class="waf-card-extra">
+          <el-tag v-if="fromCache" size="small" type="success" effect="plain" style="margin-right: 8px">
+            缓存结果{{ cacheMinutes ? ' · ' + cacheMinutes : '' }}
+          </el-tag>
           模型 {{ result.model || '-' }} · 耗时 {{ result.elapsed_ms }}ms · tokens {{ result.usage?.total_tokens ?? '-' }}
         </div>
       </div>

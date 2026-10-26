@@ -17,7 +17,8 @@ const form = reactive({
   temperature: 0.2,
   max_tokens: 1024,
   timeout_seconds: 60,
-  system_prompt: ''
+  system_prompt: '',
+  cache_minutes: 10
 })
 
 const configured = computed(() => status.value?.configured ?? false)
@@ -36,7 +37,8 @@ async function load() {
       temperature: data.config?.temperature ?? 0.2,
       max_tokens: data.config?.max_tokens ?? 1024,
       timeout_seconds: data.config?.timeout_seconds ?? 60,
-      system_prompt: data.config?.system_prompt ?? ''
+      system_prompt: data.config?.system_prompt ?? '',
+      cache_minutes: data.config?.cache_minutes ?? 10
     })
   } catch (error) {
     ElMessage.error(error.message || '加载 AI 配置失败')
@@ -132,9 +134,17 @@ onMounted(load)
             </el-form-item>
           </div>
 
-          <el-form-item label="请求超时（秒）">
-            <el-input-number v-model="form.timeout_seconds" :min="10" :max="300" :step="10" style="width: 100%" />
-          </el-form-item>
+          <div class="waf-inline-grid">
+            <el-form-item label="请求超时（秒）">
+              <el-input-number v-model="form.timeout_seconds" :min="10" :max="300" :step="10" style="width: 100%" />
+            </el-form-item>
+            <el-form-item label="结果缓存（分钟）">
+              <el-input-number v-model="form.cache_minutes" :min="1" :max="120" :step="1" style="width: 100%" />
+            </el-form-item>
+          </div>
+          <div class="waf-muted" style="font-size: 12px; margin-bottom: 10px; line-height: 1.7">
+            相同日志 + 相同提问在缓存期内直接复用上次研判结果，不再消耗 token；保存配置会立即清空旧缓存。
+          </div>
         </el-form>
       </div>
 

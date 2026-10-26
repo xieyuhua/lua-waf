@@ -20,6 +20,9 @@ const AIConfigKey = "ai.config"
 // 单次分析允许的最大日志条数。
 const maxAnalyzeLogs = 20
 
+// 分析结果缓存默认时长（分钟）。
+const defaultAICacheMinutes = 10
+
 // AIConfig 是大模型接入配置（OpenAI 兼容接口）。
 type AIConfig struct {
 	Enabled        bool    `json:"enabled"`
@@ -30,7 +33,9 @@ type AIConfig struct {
 	MaxTokens      int     `json:"max_tokens"`
 	TimeoutSeconds int     `json:"timeout_seconds"`
 	SystemPrompt   string  `json:"system_prompt"`
-	UpdatedAt      string  `json:"updated_at"`
+	// CacheMinutes 为分析结果缓存时长（分钟），默认 10。
+	CacheMinutes int    `json:"cache_minutes"`
+	UpdatedAt    string `json:"updated_at"`
 }
 
 // Configured 表示是否已具备调用条件。
@@ -69,6 +74,13 @@ func (c AIConfig) WithDefaults() AIConfig {
 	if strings.TrimSpace(out.SystemPrompt) == "" {
 		out.SystemPrompt = defaultAISystemPrompt
 	}
+	// 缓存时长：默认 10 分钟，上限 120 分钟
+	if out.CacheMinutes <= 0 {
+		out.CacheMinutes = defaultAICacheMinutes
+	}
+	if out.CacheMinutes > 120 {
+		out.CacheMinutes = 120
+	}
 	return out
 }
 
@@ -105,6 +117,8 @@ type AIStatus struct {
 type AnalyzeLogsRequest struct {
 	LogIds   []int64 `json:"log_ids"`
 	Question string  `json:"question"`
+	// Refresh 为 true 时跳过多读缓存、强制重新调用模型。
+	Refresh bool `json:"refresh"`
 }
 
 // AnalyzeLogsResult 是日志 AI 分析的结果。
@@ -114,6 +128,10 @@ type AnalyzeLogsResult struct {
 	ElapsedMs int64   `json:"elapsed_ms"`
 	LogCount  int     `json:"log_count"`
 	Usage     AIUsage `json:"usage"`
+	// Cached 表示本次结果直接来自缓存（相同参数在有效期内复用）。
+	Cached bool `json:"cached"`
+	// CachedAt 为缓存生成时间（Cached 为 true 时有值）。
+	CachedAt string `json:"cached_at,omitempty"`
 }
 
 // AIUsage 是本次调用的 token 用量。
@@ -148,6 +166,8 @@ type AIService struct {
 	Logs     repository.LogRepository
 	// Client 复用连接池；超时由配置中的 timeout_seconds 控制。
 	Client *http.Client
+	// Cache 为分析结果缓存，为 nil 时不做缓存。
+	Cache *AnalyzeCache
 }
 
 // LoadConfig 读取并补全 AI 配置。
@@ -195,6 +215,10 @@ func (s *AIService) SaveConfig(ctx context.Context, cfg AIConfig) (AIConfig, err
 	}
 	if err := s.Settings.Set(ctx, AIConfigKey, string(payload)); err != nil {
 		return AIConfig{}, err
+	}
+	// 配置变更后清空分析缓存，避免用旧提示词/模型的结果
+	if s.Cache != nil {
+		s.Cache.Purge()
 	}
 	return cfg, nil
 }
@@ -250,6 +274,22 @@ func (s *AIService) AnalyzeLogs(ctx context.Context, req AnalyzeLogsRequest) (*A
 		return nil, ErrInvalid.New("单次最多分析 %d 条日志", maxAnalyzeLogs)
 	}
 
+	question := strings.TrimSpace(req.Question)
+	if question == "" {
+		question = "请研判这些攻击日志是否为真实攻击，并给出处置建议。"
+	}
+
+	// 缓存命中直接返回（相同模型/提示词/日志/追问，且未强制刷新）
+	cacheKey := ""
+	if s.Cache != nil && !req.Refresh {
+		cacheKey = s.Cache.Key(cfg, req.LogIds, question)
+		if cached, storedAt, ok := s.Cache.Get(cacheKey); ok {
+			cached.Cached = true
+			cached.CachedAt = storedAt.Format("2006-01-02 15:04:05")
+			return &cached, nil
+		}
+	}
+
 	logs := make([]model.WafLog, 0, len(req.LogIds))
 	for _, id := range req.LogIds {
 		item, findErr := s.Logs.Get(ctx, id)
@@ -264,11 +304,6 @@ func (s *AIService) AnalyzeLogs(ctx context.Context, req AnalyzeLogsRequest) (*A
 		return nil, ErrNotFound.New("未找到可分析的日志")
 	}
 
-	question := strings.TrimSpace(req.Question)
-	if question == "" {
-		question = "请研判这些攻击日志是否为真实攻击，并给出处置建议。"
-	}
-
 	start := time.Now()
 	reply, usage, replyModel, err := s.chat(ctx, cfg, []chatMessage{
 		{Role: "system", Content: cfg.SystemPrompt},
@@ -277,13 +312,18 @@ func (s *AIService) AnalyzeLogs(ctx context.Context, req AnalyzeLogsRequest) (*A
 	if err != nil {
 		return nil, err
 	}
-	return &AnalyzeLogsResult{
+
+	result := &AnalyzeLogsResult{
 		Content:   reply,
 		Model:     replyModel,
 		ElapsedMs: time.Since(start).Milliseconds(),
 		LogCount:  len(logs),
 		Usage:     usage,
-	}, nil
+	}
+	if s.Cache != nil {
+		s.Cache.Set(cacheKey, *result, time.Duration(cfg.CacheMinutes)*time.Minute)
+	}
+	return result, nil
 }
 
 // chat 执行一次对话补全请求。

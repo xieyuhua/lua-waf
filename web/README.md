@@ -108,6 +108,7 @@ node mobile-check.mjs http://127.0.0.1:5002 "$COOKIE" ./shots 390 844
 | `stores/auth.js` | `user`、`isLoggedIn`、`login/logout/fetchProfile` | 路由守卫、顶栏、账号页 |
 | `stores/theme.js` | 外观模式、主题色、图表调色板 | 顶栏、登录页、外观设置页、图表 |
 | `stores/rules.js` | 规则类型与数量（`load/grouped/find`） | 侧边栏子菜单、规则页类型切换 |
+| `stores/ai.js` | AI 分析结果本地缓存（10 分钟，localStorage） | 日志页、AI 分析弹窗 |
 
 ## 主题系统
 

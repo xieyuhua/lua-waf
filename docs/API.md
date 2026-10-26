@@ -364,7 +364,7 @@
   "config": {
     "enabled": false, "base_url": "https://api.openai.com/v1", "api_key": "",
     "model": "gpt-4o-mini", "temperature": 0.2, "max_tokens": 1024,
-    "timeout_seconds": 60, "system_prompt": "你是一名资深的 Web 应用防火墙（WAF）安全分析师。...",
+    "timeout_seconds": 60, "cache_minutes": 10, "system_prompt": "你是一名资深的 Web 应用防火墙（WAF）安全分析师。...",
     "updated_at": "2026-10-26 10:20:00"
   }
 }
@@ -383,8 +383,25 @@
 ### POST /api/ai/analyze
 
 ```json
-{ "log_ids": [258, 257], "question": "这些请求是否属于同一攻击源？" }
+{ "log_ids": [258, 257], "question": "这些请求是否属于同一攻击源？", "refresh": false }
 ```
+
+`refresh: true` 跳过缓存，强制重新调用模型。
+
+响应：
+
+```json
+{
+  "content": "结论：真实攻击……", "model": "gpt-4o-mini",
+  "elapsed_ms": 2310, "log_count": 2,
+  "usage": { "prompt_tokens": 800, "completion_tokens": 320, "total_tokens": 1120 },
+  "cached": false
+}
+```
+
+缓存：键为「接口地址 + 模型 + 系统提示词 + 排序后的日志 ID + 提问」，有效期取
+`ai.config.cache_minutes`（默认 10 分钟，1~120）。命中时返回上次结果并带
+`"cached": true, "cached_at": "2026-10-26 15:20:31"`，不再调用模型；保存 AI 配置会清空缓存。
 
 `log_ids` 1–20 条，`question` 可空（使用默认研判指令）。返回：
 
