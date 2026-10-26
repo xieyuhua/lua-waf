@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"wafadmin/internal/app"
+	"wafadmin/internal/cli"
 	"wafadmin/internal/config"
 )
 
@@ -24,6 +25,15 @@ var version = "2.0.0"
 var webAssets embed.FS
 
 func main() {
+	// 子命令（reset-password / list-users / version / help）不启动 HTTP 服务
+	if handled, code := cli.Dispatch(os.Args[1:], version, os.Stdout, os.Stderr); handled {
+		os.Exit(code)
+	}
+	serve()
+}
+
+// serve 启动后台服务并等待退出信号。
+func serve() {
 	configPath := flag.String("config", "", "配置文件路径，默认取 WAF_CONFIG 或 conf/app.ini")
 	flag.Parse()
 

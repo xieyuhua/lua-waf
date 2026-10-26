@@ -17,14 +17,23 @@
 
 ### 新增功能
 
-- **打印执行的 SQL**：新增 `mysql.sqlLogger`（实现 xorm `core.ILogger`），开启后每条 SQL 以
+- **命令行重置账号口令**：`wafadmin reset-password -config conf/app.ini [-user admin] [-password xxx] [-create]`
+  与 `wafadmin list-users`、`version`、`help`；子命令不启动 HTTP 服务，复用业务层校验与摘要算法
+  （`md5(md5(raw)[5:10])`，兼容 1.x 老库），不带口令时随机生成 16 位并回显。
+  `main.go` 拆出 `serve()`，首个参数以 `-` 开头时仍按原方式启动服务。
+- **修复主键标签（严重）**：`xorm:"pk autoincrement"` 中的 `autoincrement` 不是 xorm 关键字
+  （它只认 `autoincr`），该词会被当成列名 —— 导致 `user`/`rules`/`waf_log` 查询报
+  `Unknown column 'autoincrement'`，新建表的出主键没有自增。现统一为 `pk autoincr 'id'`，
+  并新增 `internal/model/model_test.go` 作为回归防线。
+- **表名对齐 1.x 老库**：`Rule` 的表名固定为 `rules`（老库是复数），`SlowSQL` 为 `slow_sql`，其余为 `site`/`user`/`setting`/`waf_log`。
+- **已存在表补列开关** `database.ADD_MISSING_COLUMNS`（默认 false）：开启后对已有表只补缺失列
+  （xorm `Sync` 语义，只增不改删），用于 1.x 老库缺 `last_login`/`created`/`updated` 的场景；
+  关闭时启动日志会打印检测到的问题列与待执行的 `ALTER` 语句。
+- **SQL 日志**：新增 `mysql.sqlLogger`（实现 xorm `core.ILogger`），开启后每条 SQL 以
   `[sql] INFO  [SQL] SELECT ... ["waf", "site"] - took: 1.294ms` 形式打印语句、参数与耗时
-  （参数由 xorm 的 `[]interface {}{...}` 简化为 `[...]`）；
+  （参数由 xorm 的 `[]interface {}{...}` 简化为 `[...]`）；关闭时连 PING 等 Info 也静默，只保留 Error/Warn。
   开关为 `database.SHOW_SQL`（默认 dev 开启 / prod 关闭，可用 `WAF_DB_SHOW_SQL` 覆盖），
   后台「运行配置 → 数据库」可热切换，无需重启（改连接信息仍需重启）。
-- **表名固定**：为 `Site/Rule/User/SlowSQL/Setting/WafLog` 增加 `TableName()`，
-  不再依赖 xorm 的结构体名推导（`SlowSQL` 曾被推导为 `slow_s_q_l`）。
-  若库中已有旧的 `slow_s_q_l` 表，可迁移后删除：`INSERT INTO slow_sql SELECT * FROM slow_s_q_l; DROP TABLE slow_s_q_l;`。
 - **运行配置编辑**（系统设置 → 运行配置）：网页读写 `conf/app.ini`，保存时先备份 `.bak` 再原子替换；
   可热更新的项立即生效，需重启的项（运行模式、端口、数据库、会话密钥）在响应中列出提示；
   支持查看原文与「从磁盘重载」。密钥字段一律脱敏回显，留空/掩码表示保持原值。

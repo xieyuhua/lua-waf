@@ -141,7 +141,7 @@
     "page_size": 10,
     "session_secret": "********", "session_ttl": "12h0m0s", "session_secure": false,
     "captcha_ttl": "5m0s", "slow_sql_ms": 200,
-    "database": { "host": "127.0.0.1", "port": 3306, "user": "waf", "password": "********", "name": "waf", "show_sql": false }
+    "database": { "host": "127.0.0.1", "port": 3306, "user": "waf", "password": "********", "name": "waf", "show_sql": false, "add_missing_columns": false }
   },
   "restart_required": []
 }

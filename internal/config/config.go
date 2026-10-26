@@ -43,6 +43,9 @@ type Database struct {
 	AutoMigrate bool
 	// ShowSQL 为 true 时打印每条执行的 SQL（含参数与耗时），仅用于排障。
 	ShowSQL bool
+	// AddMissingColumns 为 true 时，对**已存在**的表只补充缺失的列（不做修改/删除）。
+	// 用于从 1.x 升级（旧库缺列）时平滑兼容；默认关闭。
+	AddMissingColumns bool
 }
 
 // DSN 组装 go-sql-driver/mysql 连接串。
@@ -222,6 +225,7 @@ func (l *Loader) applyINI(cfg *Config, file *ini.File) {
 	cfg.Database.AutoMigrate = db.Key("AUTO_MIGRATE").MustBool(true)
 	// 默认：dev 模式打印 SQL，prod 不打印（可用 SHOW_SQL 显式覆盖）
 	cfg.Database.ShowSQL = db.Key("SHOW_SQL").MustBool(cfg.RunMode == ModeDev)
+	cfg.Database.AddMissingColumns = db.Key("ADD_MISSING_COLUMNS").MustBool(false)
 }
 
 // applyEnv 用环境变量覆盖配置，便于容器化部署。
@@ -256,6 +260,9 @@ func (l *Loader) applyEnv(cfg *Config) {
 	}
 	if v := l.env("WAF_DB_SHOW_SQL"); v != "" {
 		cfg.Database.ShowSQL = parseToggle(v)
+	}
+	if v := l.env("WAF_DB_ADD_MISSING_COLUMNS"); v != "" {
+		cfg.Database.AddMissingColumns = parseToggle(v)
 	}
 }
 

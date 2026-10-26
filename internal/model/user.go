@@ -4,7 +4,7 @@ import "time"
 
 // User 是后台管理账号。表名：user
 type User struct {
-	Id        int64     `xorm:"pk autoincrement" json:"id"`
+	Id        int64     `xorm:"pk autoincr 'id'" json:"id"`
 	UserName  string    `xorm:"varchar(64) unique not null 'user_name'" json:"username"`
 	Password  string    `xorm:"varchar(64) not null" json:"-"`
 	LastLogin time.Time `json:"last_login"`

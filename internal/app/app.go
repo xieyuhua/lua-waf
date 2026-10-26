@@ -15,7 +15,6 @@ import (
 	"wafadmin/internal/model"
 	"wafadmin/internal/nginx"
 	"wafadmin/internal/repository"
-	"wafadmin/internal/repository/memory"
 	"wafadmin/internal/repository/mysql"
 	"wafadmin/internal/service"
 	"wafadmin/internal/transport/httpapi"
@@ -165,19 +164,15 @@ type builder struct {
 
 // repositories 按运行模式创建仓储实现。
 func (b *builder) repositories() (repository.Repositories, *sqlwatch.Observer, error) {
-	if b.cfg.IsDemo() {
-		store := (&memory.Store{}).Init(true)
-		log.Println("[info] 已启用内存仓储并载入演示数据")
-		return store.Repos(), nil, nil
-	}
-
-	store := &mysql.Store{}
-	if err := store.Open(b.cfg.Database); err != nil {
+	store, err := OpenStore(b.cfg)
+	if err != nil {
 		return repository.Repositories{}, nil, fmt.Errorf("连接数据库失败: %w", err)
 	}
-	b.store = store
-	b.closers = append(b.closers, store.Close)
-	return store.Repos(), store.Observer, nil
+	b.store = store.MySQL
+	if len(store.closers) > 0 {
+		b.closers = append(b.closers, store.closers...)
+	}
+	return store.Repos, store.Observer, nil
 }
 
 // services 装配全部业务服务。

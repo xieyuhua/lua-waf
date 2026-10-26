@@ -5,7 +5,7 @@ import "time"
 // Site 表示一个受 WAF 保护的后端站点。
 // 表名：site
 type Site struct {
-	Id       int64  `xorm:"pk autoincrement" json:"id"`
+	Id       int64  `xorm:"pk autoincr 'id'" json:"id"`
 	SiteName string `xorm:"varchar(190) unique not null" json:"site_name"`
 	Port     int    `json:"port"`
 	// BackendAddr 为后端应用服务器地址列表，例如 10.0.0.1:80。

@@ -15,7 +15,7 @@ const (
 
 // SlowSQL 是一条慢 SQL 记录。表名：slow_sql
 type SlowSQL struct {
-	Id int64 `xorm:"pk autoincrement" json:"id"`
+	Id int64 `xorm:"pk autoincr 'id'" json:"id"`
 	// OccurredAt 为 SQL 执行时间，列表按时间范围查询时使用该字段。
 	OccurredAt time.Time `xorm:"index 'occurred_at'" json:"occurred_at"`
 	// Source 为采集来源：admin（后台自身）/ agent（外部上报）。

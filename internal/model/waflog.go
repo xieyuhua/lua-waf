@@ -3,7 +3,7 @@ package model
 // WafLog 是一条 WAF 攻击日志。表名：waf_log
 // 由 openresty 侧的 lua 规则命中后写入，后台只读。
 type WafLog struct {
-	Id         int64  `xorm:"pk autoincrement" json:"id"`
+	Id         int64  `xorm:"pk autoincr 'id'" json:"id"`
 	ClientIp   string `xorm:"varchar(64) 'client_ip'" json:"client_ip"`
 	LocalTime  string `xorm:"varchar(32) 'local_time'" json:"local_time"`
 	ServerName string `xorm:"varchar(190) 'server_name'" json:"server_name"`

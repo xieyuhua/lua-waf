@@ -38,7 +38,7 @@ type tableSpec struct {
 func (s *Store) tables() []tableSpec {
 	return []tableSpec{
 		{name: "site", bean: new(model.Site)},
-		{name: "rule", bean: new(model.Rule)},
+		{name: "rules", bean: new(model.Rule)},
 		{name: "user", bean: new(model.User)},
 		{name: "slow_sql", bean: new(model.SlowSQL)},
 		{name: "setting", bean: new(model.Setting)},
@@ -66,7 +66,7 @@ func (s *Store) Open(database config.Database) error {
 		return fmt.Errorf("连接 MySQL 失败: %w", err)
 	}
 
-	if err := s.ensureTables(engine, database.AutoMigrate); err != nil {
+	if err := s.ensureTables(engine, database); err != nil {
 		_ = engine.Close()
 		return err
 	}
@@ -89,9 +89,10 @@ func (s *Store) Open(database config.Database) error {
 }
 
 // ensureTables 保证必要的表存在。
-// 已存在的表**不做任何结构同步**（避免 ALTER 改动线上表结构，也避免
+// 已存在的表默认**不做任何结构同步**（避免 ALTER 改动线上表结构，也避免
 // “Multiple primary key defined” 这类同步错误）；只有表不存在时才创建。
-func (s *Store) ensureTables(engine *xorm.Engine, autoMigrate bool) error {
+// 当 database.ADD_MISSING_COLUMNS = true 时，对已有表只**补充缺失列**（xorm Sync 语义：只增不改删）。
+func (s *Store) ensureTables(engine *xorm.Engine, database config.Database) error {
 	for _, item := range s.tables() {
 		exists, err := engine.IsTableExist(item.bean)
 		if err != nil {
@@ -99,9 +100,17 @@ func (s *Store) ensureTables(engine *xorm.Engine, autoMigrate bool) error {
 		}
 		if exists {
 			log.Printf("[info] 表 %s 已存在，跳过结构同步", item.name)
+			if database.AddMissingColumns {
+				if syncErr := engine.Sync(item.bean); syncErr != nil {
+					log.Printf("[warn] 表 %s 补充缺失列失败: %v", item.name, syncErr)
+				} else {
+					log.Printf("[info] 表 %s 已补充缺失列（只增不改）", item.name)
+				}
+			}
+			s.warnLegacyColumn(engine, item.name)
 			continue
 		}
-		if !autoMigrate {
+		if !database.AutoMigrate {
 			return fmt.Errorf("表 %s 不存在，且已关闭自动建表（database.AUTO_MIGRATE = false），请手工建表", item.name)
 		}
 		if err := engine.Sync2(item.bean); err != nil {
@@ -110,6 +119,18 @@ func (s *Store) ensureTables(engine *xorm.Engine, autoMigrate bool) error {
 		log.Printf("[info] 已创建表 %s", item.name)
 	}
 	return nil
+}
+
+// warnLegacyColumn 检测历史误建列：早期版本把 xorm 标签写成 autoincrement
+// （xorm 只认 autoincr），导致该词被当作列名，主键自增失效。
+// 这里只告警并给出修复语句，不自动改线上表结构。
+func (s *Store) warnLegacyColumn(engine *xorm.Engine, table string) {
+	rows, err := engine.QueryString("SHOW COLUMNS FROM `" + table + "` LIKE 'autoincrement'")
+	if err != nil || len(rows) == 0 {
+		return
+	}
+	log.Printf("[warn] 表 %s 存在历史误建列 autoincrement（主键没有自增），建议执行：", table)
+	log.Printf("[warn]   ALTER TABLE `%s` CHANGE COLUMN `autoincrement` `id` BIGINT NOT NULL AUTO_INCREMENT", table)
 }
 
 // Repos 返回仓储集合。

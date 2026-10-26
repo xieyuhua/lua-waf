@@ -148,7 +148,35 @@ go vet ./...
 ```
 
 覆盖点：口令摘要历史兼容、接口签名、地区解析、站点校验、慢 SQL 时间范围与统计口径、
-登录（验证码单次有效/错误口令/CSRF/未登录）、站点 CRUD、规则子菜单、攻击地图、看板。
+登录（验证码单次有效/错误口令/CSRF/未登录）、站点 CRUD、规则子菜单、攻击地图、看板、
+命令行重置口令、模型主键/表名标签。
+
+### 5. 命令行工具（忘记口令时用）
+
+```bash
+# 重置 admin 口令为随机 16 位（推荐：口令不会进入命令行历史）
+./wafadmin reset-password -config conf/app.ini
+
+# 重置指定账号为指定口令（至少 8 位）
+./wafadmin reset-password -config conf/app.ini -user xieyuhua -password 'MyPass2026!'
+
+# 账号不存在时一并创建
+./wafadmin reset-password -config conf/app.ini -user ops -password 'MyPass2026!' -create
+
+# 查看现有账号（确认要重置哪个）
+./wafadmin list-users -config conf/app.ini
+
+# 其它
+./wafadmin version
+./wafadmin help
+```
+
+说明：
+
+- 子命令**不启动 HTTP 服务**，直接按 `conf/app.ini` 连库操作，可与运行中的后台并存；
+- 复用业务层的口令校验与摘要算法（`md5(md5(raw)[5:10])`，与 1.x 老库兼容），不是绕过校验直写；
+- 不带子命令时行为不变：`./wafadmin -config conf/app.ini` 启动服务；
+- `demo` 模式下改的是内存数据，进程退出即失效（仅供体验）。
 
 ---
 
@@ -168,14 +196,16 @@ go vet ./...
 | security | `SESSION_TTL` / `SESSION_SECURE` / `CAPTCHA_TTL` | 会话有效期 / HTTPS 下设为 true / 验证码有效期 |
 | monitor | `SLOW_SQL_MS` | 后台自身 SQL 慢查询阈值（毫秒） |
 | database | `AUTO_MIGRATE` | 是否允许自动建表（默认 true）。**仅在表不存在时创建，已存在的表不做任何结构同步** |
+| database | `ADD_MISSING_COLUMNS` | 对**已存在**的表只补充缺失列（只增不改删），默认 false；从 1.x 老库升级时设为 true |
 | database | `SHOW_SQL` | 是否打印执行的 SQL（含参数与耗时），默认 dev 开启、prod 关闭；支持环境变量 `WAF_DB_SHOW_SQL`，后台可热切换 |
 
-> 建表策略：启动时逐张检查 `site` / `rule` / `user` / `slow_sql` / `setting`，
+> 建表策略：启动时逐张检查 `site` / `rules` / `user` / `slow_sql` / `setting`，
 > 存在的表直接跳过（不会 ALTER、不会重建主键），不存在的表才创建；`waf_log` 由 openresty 侧维护，后台只读。
 > 关闭 `AUTO_MIGRATE` 后若缺表则启动报错，需手工初始化。
 >
-> 表名已在模型上用 `TableName()` 固定。早期版本按结构体名推导过 `slow_sql` 表（曾生成 `slow_s_q_l`），
-> 如果你库里有这张旧表，可先迁移数据再删除：`INSERT INTO slow_sql SELECT * FROM slow_s_q_l; DROP TABLE slow_s_q_l;`
+> 表名已在模型上用 `TableName()` 固定（`rules` 沿用 1.x 的复数表名，避免与老库数据割裂）。
+> 若是从 1.x 升级、旧库缺列（例如 `user` 表没有 `last_login` / `created` / `updated`），
+> 把 `ADD_MISSING_COLUMNS = true` 打开即可自动补列；后台默认只告警并打印待执行的 `ALTER` 语句。
 
 环境变量可覆盖：`WAF_CONFIG`、`WAF_RUN_MODE`、`WAF_HTTP_PORT`、`WAF_API_KEY`、
 `WAF_SESSION_SECRET`、`WAF_DB_HOST`、`WAF_DB_USER`、`WAF_DB_PASSWD`、`WAF_DB_NAME`。

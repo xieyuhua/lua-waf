@@ -26,6 +26,8 @@ type DatabasePayload struct {
 	Name     string `json:"name"`
 	// ShowSQL 为 SQL 日志开关（可热更新）；为 nil 表示保持原值。
 	ShowSQL *bool `json:"show_sql,omitempty"`
+	// AddMissingColumns 为「已存在表补列」开关（仅启动时生效）；为 nil 表示保持原值。
+	AddMissingColumns *bool `json:"add_missing_columns,omitempty"`
 }
 
 // ConfigPayload 是运行配置的编辑入参。
@@ -257,6 +259,9 @@ func mergeDatabase(db *config.Database, payload *DatabasePayload) error {
 	if payload.ShowSQL != nil {
 		db.ShowSQL = *payload.ShowSQL
 	}
+	if payload.AddMissingColumns != nil {
+		db.AddMissingColumns = *payload.AddMissingColumns
+	}
 	if db.Port <= 0 || db.Port > 65535 {
 		return ErrInvalid.New("数据库端口不合法")
 	}
@@ -274,6 +279,9 @@ func (s *SystemConfigService) restartRequired(old, current *config.Config) []str
 	}
 	if s.databaseChanged(old.Database, current.Database) {
 		fields = append(fields, "database（数据库连接）")
+	}
+	if old.Database.AddMissingColumns != current.Database.AddMissingColumns {
+		fields = append(fields, "database.ADD_MISSING_COLUMNS（已存在表补列开关）")
 	}
 	if old.SessionSecret != current.SessionSecret {
 		fields = append(fields, "security.SESSION_SECRET（会话密钥）")
@@ -314,12 +322,13 @@ func (s *SystemConfigService) view(cfg *config.Config, restart []string) *Config
 		CaptchaTTL:    cfg.CaptchaTTL.String(),
 		SlowSQLMS:     cfg.SlowSQLThreshold.Milliseconds(),
 		Database: &DatabasePayload{
-			Host:     cfg.Database.Host,
-			Port:     cfg.Database.Port,
-			User:     cfg.Database.User,
-			Password: mask(cfg.Database.Password),
-			Name:     cfg.Database.Name,
-			ShowSQL:  &cfg.Database.ShowSQL,
+			Host:              cfg.Database.Host,
+			Port:              cfg.Database.Port,
+			User:              cfg.Database.User,
+			Password:          mask(cfg.Database.Password),
+			Name:              cfg.Database.Name,
+			ShowSQL:           &cfg.Database.ShowSQL,
+			AddMissingColumns: &cfg.Database.AddMissingColumns,
 		},
 	}
 
