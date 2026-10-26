@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ruleApi } from '../api/rule'
+import { viewport } from '../utils/responsive'
 import { ruleStore } from '../stores/rules'
 
 const route = useRoute()
@@ -189,13 +190,13 @@ onMounted(async () => {
       </div>
 
       <el-table v-loading="loading" :data="rows" stripe>
-        <el-table-column prop="id" label="ID" width="90" align="center" />
-        <el-table-column label="规则内容（正则片段）" min-width="420">
+        <el-table-column v-if="!viewport.isMobile.value" prop="id" label="ID" width="90" align="center" />
+        <el-table-column label="规则内容（正则片段）" :min-width="viewport.isMobile.value ? 220 : 420">
           <template #default="{ row }">
             <div class="rule-text waf-mono">{{ row.rule_item }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150" align="right">
+        <el-table-column label="操作" :width="viewport.isMobile.value ? 120 : 150" align="right" fixed="right">
           <template #default="{ row }">
             <el-button text type="primary" @click="openEdit(row)">编辑</el-button>
             <el-button text type="danger" @click="remove(row)">删除</el-button>

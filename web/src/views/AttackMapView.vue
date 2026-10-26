@@ -470,4 +470,43 @@ onBeforeUnmount(() => {
     height: 420px;
   }
 }
-</style>
+
+@media (max-width: 900px) {
+  .screen {
+    padding: 14px 12px 20px;
+  }
+  .screen-head {
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .screen-title {
+    font-size: 17px;
+  }
+  .screen-map {
+    height: 320px;
+  }
+  .metric-value {
+    font-size: 20px;
+  }
+  .screen-card {
+    padding: 12px;
+  }
+}
+
+@media (max-width: 640px) {
+  .screen {
+    padding: 12px 10px 18px;
+  }
+  .screen-map {
+    height: 240px;
+  }
+  .metric-row {
+    gap: 8px;
+  }
+  .metric-value {
+    font-size: 18px;
+  }
+  .metric-label {
+    font-size: 11px;
+  }
+}</style>

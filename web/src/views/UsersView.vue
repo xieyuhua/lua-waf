@@ -2,6 +2,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { userApi } from '../api/user'
+import { viewport } from '../utils/responsive'
 import { formatTime } from '../utils/format'
 
 const loading = ref(false)
@@ -109,7 +110,7 @@ onMounted(load)
       </div>
 
       <el-table v-loading="loading" :data="rows" stripe>
-        <el-table-column prop="id" label="ID" width="80" align="center" />
+        <el-table-column v-if="!viewport.isMobile.value" prop="id" label="ID" width="80" align="center" />
         <el-table-column label="用户名" min-width="160">
           <template #default="{ row }">
             <div style="display: flex; align-items: center; gap: 8px">
@@ -125,12 +126,12 @@ onMounted(load)
             <span class="waf-muted">{{ formatTime(row.last_login) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="创建时间" min-width="170">
+        <el-table-column v-if="!viewport.isMobile.value" label="创建时间" min-width="170">
           <template #default="{ row }">
             <span class="waf-muted">{{ formatTime(row.created) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="150" align="right">
+        <el-table-column label="操作" :width="viewport.isMobile.value ? 120 : 150" align="right" fixed="right">
           <template #default="{ row }">
             <el-button text type="primary" @click="openEdit(row)">编辑</el-button>
             <el-button text type="danger" @click="remove(row)">删除</el-button>

@@ -4,6 +4,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { slowSqlApi } from '../api/slowsql'
 import { compactStatement, formatDuration, formatNumber, formatTime, toBackendTime } from '../utils/format'
 import StatCard from '../components/StatCard.vue'
+import { viewport } from '../utils/responsive'
 
 const loading = ref(false)
 const rows = ref([])
@@ -255,8 +256,8 @@ onMounted(() => {
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="operation" label="操作" width="100" align="center" />
-        <el-table-column prop="source" label="来源" width="110" align="center">
+        <el-table-column v-if="!viewport.isMobile.value" prop="operation" label="操作" width="100" align="center" />
+        <el-table-column v-if="!viewport.isMobile.value" prop="source" label="来源" width="110" align="center">
           <template #default="{ row }">
             <el-tag size="small" :type="row.source === 'agent' ? 'success' : 'info'" effect="plain">
               {{ row.source === 'agent' ? '外部上报' : '后台自身' }}
@@ -268,7 +269,7 @@ onMounted(() => {
             <span class="waf-mono">{{ compactStatement(row.statement, 110) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="100" align="right">
+        <el-table-column label="操作" :width="viewport.isMobile.value ? 84 : 100" align="right" fixed="right">
           <template #default="{ row }">
             <el-button text type="primary" @click="openDetail(row)">详情</el-button>
           </template>

@@ -8,6 +8,7 @@ import { ruleStore } from '../stores/rules'
 import { toBackendTime } from '../utils/format'
 import AiAnalyzeDialog from '../components/AiAnalyzeDialog.vue'
 import StatCard from '../components/StatCard.vue'
+import { viewport } from '../utils/responsive'
 
 const route = useRoute()
 const router = useRouter()
@@ -240,8 +241,8 @@ onMounted(() => {
             <span class="waf-mono">{{ row.client_ip }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="area" label="地区" width="120" show-overflow-tooltip />
-        <el-table-column prop="server_name" label="站点" width="150" show-overflow-tooltip />
+        <el-table-column v-if="!viewport.isMobile.value" prop="area" label="地区" width="120" show-overflow-tooltip />
+        <el-table-column v-if="!viewport.isMobile.value" prop="server_name" label="站点" width="150" show-overflow-tooltip />
         <el-table-column label="攻击类型" width="110">
           <template #default="{ row }">
             <el-tag :type="attackTagType(row.attack_type)" size="small" effect="light">{{ row.attack_type || '未知' }}</el-tag>

@@ -91,7 +91,7 @@ async function handleCommand(command) {
     <el-dropdown trigger="click" @command="handleCommand">
       <div class="waf-user-chip">
         <span class="waf-avatar">{{ initial }}</span>
-        <span style="font-size: 13px; font-weight: 600">{{ authStore.displayName.value }}</span>
+        <span class="waf-user-name" style="font-size: 13px; font-weight: 600">{{ authStore.displayName.value }}</span>
         <el-icon style="font-size: 12px; color: var(--waf-text-dim)"><ArrowDown /></el-icon>
       </div>
       <template #dropdown>
@@ -114,6 +114,16 @@ async function handleCommand(command) {
 @media (max-width: 900px) {
   .waf-header-search {
     display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .waf-user-name {
+    display: none;
+  }
+  .waf-user-chip {
+    gap: 4px;
+    padding: 4px 6px;
   }
 }
 </style>

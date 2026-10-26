@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { siteApi } from '../api/site'
+import { viewport } from '../utils/responsive'
 import { formatTime } from '../utils/format'
 
 const loading = ref(false)
@@ -209,13 +210,13 @@ onMounted(load)
       </div>
 
       <el-table v-loading="loading" :data="rows" stripe style="width: 100%">
-        <el-table-column prop="site_name" label="域名" min-width="200">
+        <el-table-column prop="site_name" label="域名" :min-width="viewport.isMobile.value ? 150 : 200">
           <template #default="{ row }">
             <strong>{{ row.site_name }}</strong>
             <span class="waf-muted" style="margin-left: 6px">:{{ row.port }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="后端服务器" min-width="240">
+        <el-table-column v-if="!viewport.isMobile.value" label="后端服务器" min-width="240">
           <template #default="{ row }">
             <div style="display: flex; flex-wrap: wrap; gap: 4px">
               <el-tag v-for="addr in row.backend_addr" :key="addr" size="small" effect="plain">{{ addr }}</el-tag>
@@ -223,18 +224,18 @@ onMounted(load)
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="SSL" width="90" align="center">
+        <el-table-column v-if="!viewport.isMobile.value" label="SSL" width="90" align="center">
           <template #default="{ row }">
             <el-tag :type="sslTag(row.ssl)" size="small" effect="light">{{ row.ssl === 'on' ? '已启用' : '关闭' }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="debug_level" label="日志级别" width="110" align="center" />
-        <el-table-column label="最后变更" min-width="160">
+        <el-table-column v-if="!viewport.isMobile.value" prop="debug_level" label="日志级别" width="110" align="center" />
+        <el-table-column v-if="!viewport.isMobile.value" label="最后变更" min-width="160">
           <template #default="{ row }">
             <span class="waf-muted" style="font-size: 12.5px">{{ formatTime(row.last_change) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="230" align="right">
+        <el-table-column label="操作" :width="viewport.isMobile.value ? 172 : 230" fixed="right" align="right">
           <template #default="{ row }">
             <el-button text type="primary" @click="openEdit(row)">编辑</el-button>
             <el-button text type="primary" @click="preview(row)">配置</el-button>

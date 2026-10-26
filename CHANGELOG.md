@@ -24,6 +24,10 @@
 
 ### 新增功能
 
+- **全站移动端自适应**：新增断点体系（1400/1200/900/640/360）与 `web/src/utils/responsive.js`；
+  侧栏在 ≤900px 变抽屉、网格自动降列、页头与筛选区堆叠、弹窗/抽屉按视口宽（92%/88%）、
+  统计卡手机两列、图表高度自适应；表格次要列在手机上自动隐藏、操作列固定右侧并可点，
+  其余列横向滑动。新增 `mobile-check.mjs` 遍历 11 个路由验证 390px/768px 无横向溢出（截图复核）。
 - **命令行重置账号口令**：`wafadmin reset-password -config conf/app.ini [-user admin] [-password xxx] [-create]`
   与 `wafadmin list-users`、`version`、`help`；子命令不启动 HTTP 服务，复用业务层校验与摘要算法
   （`md5(md5(raw)[5:10])`，兼容 1.x 老库），不带口令时随机生成 16 位并回显。

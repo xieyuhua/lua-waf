@@ -238,7 +238,7 @@ onMounted(load)
               <el-input v-model="form.api_servers_text" placeholder="127.0.0.1,10.0.0.9" />
             </el-form-item>
 
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px">
+            <div class="waf-inline-grid">
               <el-form-item label="分页大小 PAGEMax">
                 <el-input-number v-model="form.page_size" :min="1" :max="200" style="width: 100%" />
               </el-form-item>
@@ -285,7 +285,7 @@ onMounted(load)
             <el-form-item label="会话密钥 SESSION_SECRET（需重启；留空表示不修改）">
               <el-input v-model="form.session_secret" placeholder="不少于 16 位随机字符串" />
             </el-form-item>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px">
+            <div class="waf-inline-grid">
               <el-form-item label="会话有效期 SESSION_TTL">
                 <el-input v-model="form.session_ttl" placeholder="12h / 30m" />
               </el-form-item>
@@ -307,7 +307,7 @@ onMounted(load)
           </div>
 
           <el-form label-position="top">
-            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 14px">
+            <div class="waf-inline-grid waf-inline-grid--wide">
               <el-form-item label="主机 HOST">
                 <el-input v-model="form.db_host" placeholder="127.0.0.1" />
               </el-form-item>
@@ -315,7 +315,7 @@ onMounted(load)
                 <el-input-number v-model="form.db_port" :min="1" :max="65535" style="width: 100%" />
               </el-form-item>
             </div>
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px">
+            <div class="waf-inline-grid">
               <el-form-item label="账号 USER">
                 <el-input v-model="form.db_user" placeholder="waf" />
               </el-form-item>

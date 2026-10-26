@@ -123,7 +123,7 @@ onMounted(load)
             <el-input v-model="form.model" placeholder="例如 gpt-4o-mini / deepseek-chat" />
           </el-form-item>
 
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px">
+          <div class="waf-inline-grid">
             <el-form-item label="Temperature">
               <el-slider v-model="form.temperature" :min="0" :max="1" :step="0.1" show-input />
             </el-form-item>
