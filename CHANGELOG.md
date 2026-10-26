@@ -52,6 +52,13 @@
 
 ### lua-waf
 
+- **自动封禁（可选，默认关闭）**：新增 `ban.lua`，命中攻击（由 `util.log_record` 通知）按来源 IP 计数，
+  窗口内达阈值即写入 `ngx.shared.waf_bans`（带 TTL，到期自动解封），`waf.check()` 新增 `ban_check` 阶段直接 403；
+  支持按攻击类型过滤（`config_auto_ban_types`）；白名单 IP 优先，非攻击事件（请求体超限/封禁中）不计入。
+  开关与阈值为 `config_auto_ban_check / expire / window / threshold`。
+  > 说明：默认「检测到攻击只拦当前请求」，这是为避免 NAT、CDN 回源等共享 IP 被误封。
+- **后台一键封禁**：攻击日志列表与详情抽屉新增「封禁」按钮，把来源 IP 写入 `blackip` 规则并立即下发
+  （转义点号后作为正则片段）。
 - **日志输出双模式**（`config_log_mode`）：
   - `file`：保持 1.x 的本地文件追加写，供采集器读取；
   - `mysql`：日志先入 `ngx.shared.waf_log_queue` 内存队列，`ngx.timer` 每 N 秒批量

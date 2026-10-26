@@ -9,6 +9,7 @@ local config = require("config")
 local util = require("util")
 local body = require("body")
 local malformed = require("malformed")
+local ban = require("ban")
 
 local _M = {
     RULES = {}
@@ -212,6 +213,26 @@ function _M.user_agent_attack_check()
     return false
 end
 
+-- 自动封禁检查：命中封禁表直接拒绝（封禁由 ban.record 在攻击命中时写入）
+function _M.ban_check()
+    if config.config_auto_ban_check ~= "on" then
+        return false
+    end
+    if not ban.currently_banned() then
+        return false
+    end
+
+    util.log_record(config.config_log_dir, 'IP封禁中', ngx.var.request_uri, "-", "auto_ban")
+    if config.config_waf_enable == "on" then
+        local expire = tonumber(config.config_auto_ban_expire) or 600
+        ngx.status = ngx.HTTP_FORBIDDEN
+        ngx.header.content_type = "text/html"
+        ngx.say(string.format(config.config_output_html, util.get_client_ip(), expire))
+        ngx.exit(ngx.HTTP_FORBIDDEN)
+    end
+    return false
+end
+
 -- deny malformed request (HTTP 走私 / 头部注入 / 非法编码)
 function _M.malformed_request_check()
     if config.config_malformed_check ~= "on" then
@@ -249,8 +270,9 @@ end
 
 -- waf start
 function _M.check()
-    if _M.malformed_request_check() then
-    elseif _M.white_ip_check() then
+    if _M.white_ip_check() then
+    elseif _M.ban_check() then
+    elseif _M.malformed_request_check() then
     elseif _M.black_ip_check() then
     elseif _M.user_agent_attack_check() then
     elseif _M.white_url_check() then

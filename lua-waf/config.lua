@@ -65,6 +65,15 @@ local _M = {
     config_post_max_parts = 200,
     -- enable/disable 畸形请求检测（TE/CL 走私、重复 Content-Length、裸 CRLF、非法编码等）
     config_malformed_check = "on",
+    -- 检测到攻击是否自动封禁来源 IP（默认关闭：NAT / CDN 回源等共享 IP 场景易误杀）
+    config_auto_ban_check = "off",
+    -- 封禁时长（秒）
+    config_auto_ban_expire = 600,
+    -- 统计窗口（秒）与窗口内触发封禁的命中次数
+    config_auto_ban_window = 60,
+    config_auto_ban_threshold = 1,
+    -- 参与自动封禁的攻击类型，逗号分隔；"*" 表示除内置排除项外全部参与
+    config_auto_ban_types = "*",
     -- config waf output redirect/html/jinghuashuiyue
     config_waf_model = "html",
     -- if config_waf_output ,setting url

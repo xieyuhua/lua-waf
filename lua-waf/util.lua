@@ -181,6 +181,14 @@ function _M.log_record(config_log_dir, attack_type, url, data, ruletag)
     if not ok then
         ngx.log(ngx.ERR, "[waf] 记录 WAF 日志失败: ", tostring(err))
     end
+
+    -- 命中攻击后按需自动封禁来源 IP（开关 config_auto_ban_check，默认关闭）
+    local ok_ban, err_ban = pcall(function()
+        require("ban").record(attack_type)
+    end)
+    if not ok_ban then
+        ngx.log(ngx.ERR, "[waf] 自动封禁处理失败: ", tostring(err_ban))
+    end
 end
 
 -- forbid ip response

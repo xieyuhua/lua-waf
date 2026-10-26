@@ -15,6 +15,7 @@ waf 与 wafadmin 必须部署在同一台服务器上：后台负责生成 vhost
 | `access.lua` | 请求入口（access 阶段）：解析真实 IP → CDN/蜘蛛 IP 放行 → URL 白名单 → `waf.check()` |
 | `waf.lua` | 检测调度中心：各项检查函数与统一的 `check()` 顺序；规则表缓存在 `_M.RULES` |
 | `malformed.lua` | **v2 新增**：畸形请求检测（HTTP 走私、裸 CRLF、非法编码、超长请求行、Host 校验） |
+| `ban.lua` | **v2 新增**：自动封禁（命中攻击按 IP 计数，达阈值写入 `waf_bans` 并带 TTL，到期自动解封） |
 | `body.lua` | **v2 新增**：请求体检测（urlencoded / multipart 分段 / JSON / 大请求体落盘） |
 | `log_sink.lua` | **v2 新增**：日志输出统一入口，按 `config_log_mode` 选择写文件 / 内存队列 / Redis 队列，失败自动回落文件 |
 | `log_mysql.lua` | **v2 新增**：批量 INSERT `waf_log`（lua-resty-mysql + 连接池 + `ngx.quote_sql_str` 转义） |
@@ -40,16 +41,17 @@ access_by_lua_file access.lua
 `waf.check()` 的检测顺序（先命中先返回）：
 
 ```
-1. malformed_request_check   畸形请求（走私 / 头部注入 / 非法编码）
-2. white_ip_check            IP 白名单（放行）
-3. black_ip_check            IP 黑名单（拦截）
-4. user_agent_attack_check   UA 特征（扫描器）
-5. white_url_check           URL 白名单（放行）
-6. url_attack_check          URL 路径特征
-7. cc_attack_check           CC 频率
-8. cookie_attack_check       Cookie 特征
-9. url_args_attack_check     GET 参数特征
-10. post_attack_check        请求体特征（含 multipart 分段）
+1. white_ip_check            IP 白名单（放行）
+2. ban_check                 自动封禁表（拒绝）
+3. malformed_request_check   畸形请求（走私 / 头部注入 / 非法编码）
+4. black_ip_check            IP 黑名单（拦截）
+5. user_agent_attack_check   UA 特征（扫描器）
+6. white_url_check           URL 白名单（放行）
+7. url_attack_check          URL 路径特征
+8. cc_attack_check           CC 频率
+9. cookie_attack_check       Cookie 特征
+10. url_args_attack_check    GET 参数特征
+11. post_attack_check        请求体特征（含 multipart 分段）
 ```
 
 此外还有 `bad_guy_check`：`ngx.shared.badGuys` 中已被累计拦截的 IP，用于「幻影/诱饵」后端切换。
@@ -145,6 +147,11 @@ access_by_lua_file access.lua
 | `config_redis_host` / `config_redis_port` | `127.0.0.1` / `6379` | Redis 地址（redis 模式） |
 | `config_redis_password` / `config_redis_db` | `""` / `0` | Redis 密码与库号 |
 | `config_redis_list_key` | `"waf:logs"` | Redis 队列键名 |
+| `config_auto_ban_check` | `"off"` | 是否自动封禁命中攻击的来源 IP（**默认关闭**） |
+| `config_auto_ban_expire` | `600` | 封禁时长（秒），到期自动解封 |
+| `config_auto_ban_window` | `60` | 命中计数窗口（秒） |
+| `config_auto_ban_threshold` | `1` | 窗口内命中多少次后封禁 |
+| `config_auto_ban_types` | `"*"` | 参与封禁的攻击类型，逗号分隔；`*` 表示全部（排除「请求体超限」等非攻击事件） |
 
 ## 6. 日志输出模式（文件 / 高并发异步落库）
 
@@ -190,7 +197,45 @@ init_worker_by_lua_file /www/server/nginx/x-waf/init_worker.lua;
 - Redis 模式注意 `maxmemory-policy`，不要设为 `allkeys-lru`（可能淘汰日志），建议 `noeviction` + 监控 `llen`；
 - `waf_log` 表增长快时，可按月分表或定期归档（后台「攻击日志」只读最近数据）。
 
-## 7. 部署与生效
+## 7. 自动封禁（可选）
+
+**默认不封禁 IP。** 命中攻击时只拦截「当前这一次请求」（输出拦截页 + 记录日志），
+不会把 IP 加入黑名单。要获得跨请求的封禁效果，目前有三条路径：
+
+| 机制 | 触发条件 | 效果 | 生效范围 |
+| --- | --- | --- | --- |
+| IP 黑名单（`blackip.rule`） | 后台手工维护 / 日志页「封禁」按钮 | 一律 403 | 长期，直到规则被删除并下发 |
+| 拦截频率封禁（`config_ipcc_rate`） | 同一 IP 在 7200 秒内被拦截超过 120 次 | 窗口内后续请求一律 403 | 窗口到期自动解除 |
+| **自动封禁（`config_auto_ban_check`）** | 命中攻击按 IP 计数，窗口内达阈值 | 写入 `waf_bans`（TTL 到期自动解封），`ban_check` 阶段直接 403 | 可配置（默认 600 秒） |
+
+开启自动封禁：
+
+```lua
+config_auto_ban_check = "on",      -- 打开开关
+config_auto_ban_expire = 600,      -- 封多久（秒）
+config_auto_ban_window = 60,       -- 统计窗口（秒）
+config_auto_ban_threshold = 1,     -- 窗口内命中几次封禁（1 = 首次命中即封）
+config_auto_ban_types = "*",       -- 参与的攻击类型；也可写成 "sql注入,XSS跨站,命令执行"
+```
+
+并在 `nginx.conf` 声明封禁表：
+
+```nginx
+lua_shared_dict waf_bans 20m;
+```
+
+实现要点：
+
+- 计数键 `hit:<ip>`（带窗口 TTL），封禁键 `ban:<ip>`（带封禁 TTL），到期由共享内存自动清理，无需定时任务；
+- 白名单 IP 优先于封禁（`white_ip_check` 在 `ban_check` 之前），避免误封自家出口；
+- 「请求体超限」「IP封禁中」等非攻击事件不计入，防止日志类事件触发封禁；
+- 排障：`require("ban").stats(ip)` 可查看 `hits` 与 `banned`。
+
+> 注意：检测即封禁在 **NAT / CDN 回源 / 办公网出口** 场景容易误伤整片用户。
+> 建议先用 `config_auto_ban_threshold = 3` + `window = 300` 观察一段时间日志，再收紧；
+> 单次误判希望只拦当前请求时，保持默认关闭，改用后台日志页的「封禁」按钮人工处置。
+
+## 8. 部署与生效
 
 1. 把整个目录放到 `/www/server/nginx/x-waf/`，确保 `nginx.conf` 中
    `lua_package_path` 覆盖该目录（新增的 `body.lua`、`malformed.lua`、`log_*.lua` 必须与 `waf.lua` 同级）。
@@ -199,6 +244,7 @@ init_worker_by_lua_file /www/server/nginx/x-waf/init_worker.lua;
 ```nginx
 lua_shared_dict limit 100m;
 lua_shared_dict badGuys 100m;
+lua_shared_dict waf_bans      20m;   -- 自动封禁（config_auto_ban_check=on 时）
 lua_shared_dict waf_log_queue 20m;   -- 仅 mysql 模式需要
 lua_shared_dict waf_log_meta  1m;    -- 仅 mysql 模式需要
 lua_code_cache on;
@@ -222,7 +268,7 @@ access_by_lua_file /www/server/nginx/x-waf/access.lua;
    - `nginx -t` 校验语法；`error_log ... info;` 查看规则加载与日志模式启用情况；
    - 拦截页与命中记录都可在后台「攻击日志」中按 IP / 类型 / 时间范围查询。
 
-## 8. 日志格式
+## 9. 日志格式
 
 `util.log_record()` 构造一条记录交给 `log_sink`，字段与后台 `waf_log` 表一一对应
 （`file` 模式写一行 JSON；`mysql` / `redis` 模式按字段批量入库）：
@@ -235,7 +281,7 @@ access_by_lua_file /www/server/nginx/x-waf/access.lua;
 
 后台按 `local_time` 做时间范围筛选、按 `area` 做攻击地图定位、按 `attack_type` 做类型统计。
 
-## 9. 致谢
+## 10. 致谢
 
 1. 感谢春哥开源的 [openresty](https://openresty.org)
 2. 感谢 unixhot 开源的 [waf](https://github.com/unixhot/waf)

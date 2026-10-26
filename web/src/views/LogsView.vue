@@ -1,8 +1,10 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { logApi } from '../api/log'
+import { ruleApi } from '../api/rule'
+import { ruleStore } from '../stores/rules'
 import { toBackendTime } from '../utils/format'
 import AiAnalyzeDialog from '../components/AiAnalyzeDialog.vue'
 import StatCard from '../components/StatCard.vue'
@@ -108,6 +110,33 @@ function analyzeSelected() {
   aiVisible.value = true
 }
 
+/** 把来源 IP 加入黑名单并下发（转义点号，避免正则通配） */
+async function banIp(row) {
+  const ip = String(row.client_ip || '').trim()
+  if (!ip) {
+    ElMessage.warning('该日志没有可封禁的来源 IP')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      `将 ${ip} 写入「IP 黑名单」并立即下发到本机与集群节点，是否继续？`,
+      '封禁 IP',
+      { type: 'warning', confirmButtonText: '封禁', cancelButtonText: '取消' }
+    )
+  } catch (error) {
+    return
+  }
+
+  try {
+    await ruleApi.create({ rule_type: 'blackip', rule_item: ip.replace(/\./g, '\\.') })
+    await ruleApi.sync()
+    ElMessage.success(`${ip} 已加入 IP 黑名单并下发`)
+    ruleStore.load(true)
+  } catch (error) {
+    ElMessage.error(error.message || '封禁失败（可能已存在同名规则）')
+  }
+}
+
 const attackTagType = (type) => {
   if (!type) return 'info'
   if (type.includes('SQL') || type.includes('命令')) return 'danger'
@@ -205,28 +234,29 @@ onMounted(() => {
         @selection-change="handleSelectionChange"
       >
         <el-table-column type="selection" width="46" />
-        <el-table-column prop="local_time" label="时间" width="170" />
-        <el-table-column prop="client_ip" label="来源 IP" width="140">
+        <el-table-column prop="local_time" label="时间" width="160" />
+        <el-table-column prop="client_ip" label="来源 IP" width="128">
           <template #default="{ row }">
             <span class="waf-mono">{{ row.client_ip }}</span>
           </template>
         </el-table-column>
-        <el-table-column prop="area" label="地区" width="150" show-overflow-tooltip />
-        <el-table-column prop="server_name" label="站点" width="170" show-overflow-tooltip />
-        <el-table-column label="攻击类型" width="130">
+        <el-table-column prop="area" label="地区" width="120" show-overflow-tooltip />
+        <el-table-column prop="server_name" label="站点" width="150" show-overflow-tooltip />
+        <el-table-column label="攻击类型" width="110">
           <template #default="{ row }">
             <el-tag :type="attackTagType(row.attack_type)" size="small" effect="light">{{ row.attack_type || '未知' }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="请求路径" min-width="260" show-overflow-tooltip>
+        <el-table-column label="请求路径" min-width="200" show-overflow-tooltip>
           <template #default="{ row }">
             <span class="waf-mono">{{ row.req_url }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="160" align="right">
+        <el-table-column label="操作" width="180" align="right" fixed="right">
           <template #default="{ row }">
             <el-button text type="primary" @click="openDetail(row)">详情</el-button>
             <el-button text type="primary" @click="analyzeOne(row)">AI</el-button>
+            <el-button text type="danger" @click="banIp(row)">封禁</el-button>
           </template>
         </el-table-column>
         <template #empty><div class="waf-empty">没有符合条件的日志</div></template>
@@ -269,6 +299,9 @@ onMounted(() => {
 
         <el-button type="primary" plain style="margin-top: 16px; width: 100%" @click="analyzeOne(current)">
           <el-icon><MagicStick /></el-icon> 交给 AI 分析这条日志
+        </el-button>
+        <el-button type="danger" plain style="margin-top: 10px; width: 100%" @click="banIp(current)">
+          <el-icon><Lock /></el-icon> 将该 IP 加入黑名单并下发
         </el-button>
       </template>
     </el-drawer>
