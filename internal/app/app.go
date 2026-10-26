@@ -94,6 +94,7 @@ func New(opts Options) (*App, error) {
 			deps:    deps,
 			session: sessionManager,
 			csrf:    csrfGuard,
+			db:      builder.store,
 		},
 	}
 
@@ -158,6 +159,8 @@ type builder struct {
 	closers []func() error
 	// nginx 为共享的 nginx 配置管理器（热更新与配置下发共用同一实例）。
 	nginx *nginx.Manager
+	// store 为 MySQL 仓储实例（演示模式为 nil），用于运行时开关 SQL 日志。
+	store *mysql.Store
 }
 
 // repositories 按运行模式创建仓储实现。
@@ -172,6 +175,7 @@ func (b *builder) repositories() (repository.Repositories, *sqlwatch.Observer, e
 	if err := store.Open(b.cfg.Database); err != nil {
 		return repository.Repositories{}, nil, fmt.Errorf("连接数据库失败: %w", err)
 	}
+	b.store = store
 	b.closers = append(b.closers, store.Close)
 	return store.Repos(), store.Observer, nil
 }

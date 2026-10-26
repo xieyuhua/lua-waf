@@ -19,6 +19,9 @@ type Site struct {
 }
 
 // SSL 生效时返回 true。
+// TableName 固定表名，避免依赖 xorm 的结构体名推导。
+func (Site) TableName() string { return "site" }
+
 func (s Site) SSLEnabled() bool { return s.Ssl == "on" }
 
 // Upstream 返回 nginx upstream 名称。

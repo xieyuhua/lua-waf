@@ -293,3 +293,52 @@ func hasKeyValue(text, key, want string) bool {
 	}
 	return false
 }
+
+// TestSystemConfigShowSQLToggle 校验 SQL 日志开关热更新、不提示重启且能落盘。
+func TestSystemConfigShowSQLToggle(t *testing.T) {
+	svc, applier, path := newSystemConfig(t)
+
+	enabled := true
+	view, err := svc.Update(context.Background(), service.ConfigPayload{
+		Database: &service.DatabasePayload{ShowSQL: &enabled},
+	})
+	if err != nil {
+		t.Fatalf("开启 SQL 日志失败: %v", err)
+	}
+	if view.Config.Database == nil || view.Config.Database.ShowSQL == nil || !*view.Config.Database.ShowSQL {
+		t.Fatal("返回值未体现 show_sql = true")
+	}
+	if len(view.RestartRequired) != 0 {
+		t.Fatalf("SQL 日志开关不应要求重启: %v", view.RestartRequired)
+	}
+	if applier.applied == nil || !applier.applied.Database.ShowSQL {
+		t.Fatal("热更新未应用 SQL 日志开关")
+	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("读取配置文件失败: %v", err)
+	}
+	if !hasKeyValue(string(content), "SHOW_SQL", "true") {
+		t.Fatalf("SHOW_SQL 未写入文件: %s", content)
+	}
+
+	disabled := false
+	view, err = svc.Update(context.Background(), service.ConfigPayload{
+		Database: &service.DatabasePayload{ShowSQL: &disabled},
+	})
+	if err != nil {
+		t.Fatalf("关闭 SQL 日志失败: %v", err)
+	}
+	if *view.Config.Database.ShowSQL {
+		t.Fatal("关闭后 show_sql 仍为 true")
+	}
+
+	content, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("读取配置文件失败: %v", err)
+	}
+	if !hasKeyValue(string(content), "SHOW_SQL", "false") {
+		t.Fatalf("SHOW_SQL = false 未写入文件: %s", content)
+	}
+}

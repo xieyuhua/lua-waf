@@ -5,6 +5,7 @@ import (
 
 	"wafadmin/internal/config"
 	"wafadmin/internal/nginx"
+	"wafadmin/internal/repository/mysql"
 	"wafadmin/internal/transport/httpapi"
 	"wafadmin/pkg/session"
 )
@@ -17,6 +18,7 @@ type runtimeConfig struct {
 	deps    *httpapi.Deps
 	session *session.Manager
 	csrf    *httpapi.CSRFGuard
+	db      *mysql.Store
 }
 
 // Apply 实现 service.ConfigApplier。
@@ -46,6 +48,11 @@ func (r *runtimeConfig) Apply(cfg *config.Config) {
 	r.session.Secret = []byte(cfg.SessionSecret)
 	r.session.Secure = cfg.SessionSecure
 	r.csrf.Secure = cfg.SessionSecure
+
+	// SQL 日志开关（演示模式无 MySQL，db 为 nil）
+	if r.db != nil {
+		r.db.ApplyShowSQL(cfg.Database.ShowSQL)
+	}
 }
 
 // configPath 返回可写的配置文件路径（未找到配置文件时落到 conf/app.ini）。

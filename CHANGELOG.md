@@ -17,6 +17,14 @@
 
 ### 新增功能
 
+- **打印执行的 SQL**：新增 `mysql.sqlLogger`（实现 xorm `core.ILogger`），开启后每条 SQL 以
+  `[sql] INFO  [SQL] SELECT ... ["waf", "site"] - took: 1.294ms` 形式打印语句、参数与耗时
+  （参数由 xorm 的 `[]interface {}{...}` 简化为 `[...]`）；
+  开关为 `database.SHOW_SQL`（默认 dev 开启 / prod 关闭，可用 `WAF_DB_SHOW_SQL` 覆盖），
+  后台「运行配置 → 数据库」可热切换，无需重启（改连接信息仍需重启）。
+- **表名固定**：为 `Site/Rule/User/SlowSQL/Setting/WafLog` 增加 `TableName()`，
+  不再依赖 xorm 的结构体名推导（`SlowSQL` 曾被推导为 `slow_s_q_l`）。
+  若库中已有旧的 `slow_s_q_l` 表，可迁移后删除：`INSERT INTO slow_sql SELECT * FROM slow_s_q_l; DROP TABLE slow_s_q_l;`。
 - **运行配置编辑**（系统设置 → 运行配置）：网页读写 `conf/app.ini`，保存时先备份 `.bak` 再原子替换；
   可热更新的项立即生效，需重启的项（运行模式、端口、数据库、会话密钥）在响应中列出提示；
   支持查看原文与「从磁盘重载」。密钥字段一律脱敏回显，留空/掩码表示保持原值。

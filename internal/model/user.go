@@ -13,6 +13,9 @@ type User struct {
 }
 
 // Display 返回脱敏后的账号信息。
+// TableName 固定表名，避免依赖 xorm 的结构体名推导。
+func (User) TableName() string { return "user" }
+
 func (u User) Display() UserView {
 	return UserView{
 		Id:        u.Id,

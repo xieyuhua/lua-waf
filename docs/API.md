@@ -141,7 +141,7 @@
     "page_size": 10,
     "session_secret": "********", "session_ttl": "12h0m0s", "session_secure": false,
     "captcha_ttl": "5m0s", "slow_sql_ms": 200,
-    "database": { "host": "127.0.0.1", "port": 3306, "user": "waf", "password": "********", "name": "waf" }
+    "database": { "host": "127.0.0.1", "port": 3306, "user": "waf", "password": "********", "name": "waf", "show_sql": false }
   },
   "restart_required": []
 }
@@ -163,8 +163,8 @@
 ```
 
 热更新范围：nginx 路径与演示开关、分页大小、慢 SQL 阈值、节点密钥、验证码有效期、
-会话有效期/密钥/安全标志（改密钥会使既有会话失效）。
-需重启：`RUN_MODE`、`HTTP_PORT`、`database.*`、`security.SESSION_SECRET`。
+会话有效期/密钥/安全标志（改密钥会使既有会话失效）、**`database.show_sql`（SQL 日志开关）**。
+需重启：`RUN_MODE`、`HTTP_PORT`、`database.*`（除 `show_sql`）、`security.SESSION_SECRET`。
 
 ### POST /api/system/config/reload
 

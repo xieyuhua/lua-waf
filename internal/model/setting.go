@@ -8,3 +8,6 @@ type Setting struct {
 	ConfigValue string    `xorm:"text 'config_value'" json:"config_value"`
 	Updated     time.Time `xorm:"updated" json:"updated"`
 }
+
+// TableName 固定表名，避免依赖 xorm 的结构体名推导。
+func (Setting) TableName() string { return "setting" }

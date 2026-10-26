@@ -82,6 +82,7 @@ func (w *Writer) apply(file *ini.File, cfg *Config) {
 	set("database", "PORT", strconv.Itoa(cfg.Database.Port))
 	set("database", "NAME", cfg.Database.Name)
 	set("database", "AUTO_MIGRATE", strconv.FormatBool(cfg.Database.AutoMigrate))
+	set("database", "SHOW_SQL", strconv.FormatBool(cfg.Database.ShowSQL))
 
 	set("waf", "RULE_PATH", cfg.RulePath)
 	set("waf", "LOG_DIR", cfg.WafLogDir)

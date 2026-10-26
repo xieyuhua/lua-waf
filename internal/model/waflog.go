@@ -35,3 +35,6 @@ type DateStat struct {
 	Date string `xorm:"'date'" json:"date"`
 	Num  int64  `json:"num"`
 }
+
+// TableName 固定表名（该表由 openresty 侧写入，后台只读）。
+func (WafLog) TableName() string { return "waf_log" }

@@ -168,10 +168,14 @@ go vet ./...
 | security | `SESSION_TTL` / `SESSION_SECURE` / `CAPTCHA_TTL` | 会话有效期 / HTTPS 下设为 true / 验证码有效期 |
 | monitor | `SLOW_SQL_MS` | 后台自身 SQL 慢查询阈值（毫秒） |
 | database | `AUTO_MIGRATE` | 是否允许自动建表（默认 true）。**仅在表不存在时创建，已存在的表不做任何结构同步** |
+| database | `SHOW_SQL` | 是否打印执行的 SQL（含参数与耗时），默认 dev 开启、prod 关闭；支持环境变量 `WAF_DB_SHOW_SQL`，后台可热切换 |
 
-> 建表策略：启动时逐张检查 `site` / `rules` / `user` / `slow_sql` / `setting`，
+> 建表策略：启动时逐张检查 `site` / `rule` / `user` / `slow_sql` / `setting`，
 > 存在的表直接跳过（不会 ALTER、不会重建主键），不存在的表才创建；`waf_log` 由 openresty 侧维护，后台只读。
 > 关闭 `AUTO_MIGRATE` 后若缺表则启动报错，需手工初始化。
+>
+> 表名已在模型上用 `TableName()` 固定。早期版本按结构体名推导过 `slow_sql` 表（曾生成 `slow_s_q_l`），
+> 如果你库里有这张旧表，可先迁移数据再删除：`INSERT INTO slow_sql SELECT * FROM slow_s_q_l; DROP TABLE slow_s_q_l;`
 
 环境变量可覆盖：`WAF_CONFIG`、`WAF_RUN_MODE`、`WAF_HTTP_PORT`、`WAF_API_KEY`、
 `WAF_SESSION_SECRET`、`WAF_DB_HOST`、`WAF_DB_USER`、`WAF_DB_PASSWD`、`WAF_DB_NAME`。

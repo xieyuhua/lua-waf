@@ -17,6 +17,9 @@ type RuleFileItem struct {
 }
 
 // ToFileItem 转换为规则文件条目。
+// TableName 固定表名，避免依赖 xorm 的结构体名推导。
+func (Rule) TableName() string { return "rule" }
+
 func (r Rule) ToFileItem() RuleFileItem {
 	return RuleFileItem{Id: r.Id, RuleType: r.RuleType, RuleItem: r.RuleItem}
 }

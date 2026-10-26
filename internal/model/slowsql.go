@@ -56,6 +56,9 @@ type SlowSQLStats struct {
 }
 
 // TruncatedStatement 返回截断后的语句，避免超长文本入库。
+// TableName 固定表名：xorm 默认会把 SlowSQL 推导成 slow_s_q_l。
+func (SlowSQL) TableName() string { return "slow_sql" }
+
 func (s SlowSQL) TruncatedStatement(limit int) string {
 	if limit <= 0 || len(s.Statement) <= limit {
 		return s.Statement

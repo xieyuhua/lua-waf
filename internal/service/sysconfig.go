@@ -24,6 +24,8 @@ type DatabasePayload struct {
 	User     string `json:"user"`
 	Password string `json:"password"`
 	Name     string `json:"name"`
+	// ShowSQL 为 SQL 日志开关（可热更新）；为 nil 表示保持原值。
+	ShowSQL *bool `json:"show_sql,omitempty"`
 }
 
 // ConfigPayload 是运行配置的编辑入参。
@@ -252,6 +254,9 @@ func mergeDatabase(db *config.Database, payload *DatabasePayload) error {
 	if value := strings.TrimSpace(payload.Password); value != "" && !isMasked(value) {
 		db.Password = value
 	}
+	if payload.ShowSQL != nil {
+		db.ShowSQL = *payload.ShowSQL
+	}
 	if db.Port <= 0 || db.Port > 65535 {
 		return ErrInvalid.New("数据库端口不合法")
 	}
@@ -267,13 +272,22 @@ func (s *SystemConfigService) restartRequired(old, current *config.Config) []str
 	if old.HTTPPort != current.HTTPPort {
 		fields = append(fields, "HTTP_PORT（监听端口）")
 	}
-	if old.Database != current.Database {
+	if s.databaseChanged(old.Database, current.Database) {
 		fields = append(fields, "database（数据库连接）")
 	}
 	if old.SessionSecret != current.SessionSecret {
 		fields = append(fields, "security.SESSION_SECRET（会话密钥）")
 	}
 	return fields
+}
+
+// databaseChanged 判断数据库**连接**是否变化（ShowSQL 为热更新项，不计入）。
+func (s *SystemConfigService) databaseChanged(old, current config.Database) bool {
+	return old.Host != current.Host ||
+		old.Port != current.Port ||
+		old.User != current.User ||
+		old.Password != current.Password ||
+		old.Name != current.Name
 }
 
 // view 组装脱敏后的配置视图。
@@ -305,6 +319,7 @@ func (s *SystemConfigService) view(cfg *config.Config, restart []string) *Config
 			User:     cfg.Database.User,
 			Password: mask(cfg.Database.Password),
 			Name:     cfg.Database.Name,
+			ShowSQL:  &cfg.Database.ShowSQL,
 		},
 	}
 

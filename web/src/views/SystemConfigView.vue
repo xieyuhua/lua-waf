@@ -32,7 +32,8 @@ const form = reactive({
   db_port: 3306,
   db_user: '',
   db_password: '',
-  db_name: ''
+  db_name: '',
+  db_show_sql: false
 })
 
 const runModes = [
@@ -78,7 +79,8 @@ function applyView(view) {
     db_port: data.database?.port ?? 3306,
     db_user: data.database?.user ?? '',
     db_password: data.database?.password ?? '',
-    db_name: data.database?.name ?? ''
+    db_name: data.database?.name ?? '',
+    db_show_sql: Boolean(data.database?.show_sql)
   })
   meta.file = view?.file ?? ''
   meta.source = view?.source ?? ''
@@ -112,7 +114,8 @@ function buildPayload() {
       port: Number(form.db_port),
       user: form.db_user,
       password: form.db_password,
-      name: form.db_name
+      name: form.db_name,
+      show_sql: Boolean(form.db_show_sql)
     }
   }
 }
@@ -323,6 +326,9 @@ onMounted(load)
             <el-form-item label="库名 NAME">
               <el-input v-model="form.db_name" placeholder="waf" />
             </el-form-item>
+            <el-form-item label="打印执行的 SQL（database.SHOW_SQL，热更新）">
+              <el-switch v-model="form.db_show_sql" active-text="开启" inactive-text="关闭" />
+            </el-form-item>
           </el-form>
 
           <el-alert
@@ -331,6 +337,9 @@ onMounted(load)
             show-icon
             title="修改数据库连接后需重启进程；重启前请确认新库已初始化（会自动建表并写入初始账号与内置规则）"
           />
+          <p class="waf-muted" style="font-size: 12px; margin-top: 10px; line-height: 1.7">
+            开启 SQL 日志会记录全部查询参数，生产环境排障后建议关闭，避免日志量过大与敏感数据外泄。
+          </p>
         </div>
       </div>
     </template>

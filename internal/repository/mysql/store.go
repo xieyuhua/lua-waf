@@ -8,6 +8,7 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/go-xorm/xorm"
+	"xorm.io/core"
 
 	"wafadmin/internal/config"
 	"wafadmin/internal/model"
@@ -37,7 +38,7 @@ type tableSpec struct {
 func (s *Store) tables() []tableSpec {
 	return []tableSpec{
 		{name: "site", bean: new(model.Site)},
-		{name: "rules", bean: new(model.Rule)},
+		{name: "rule", bean: new(model.Rule)},
 		{name: "user", bean: new(model.User)},
 		{name: "slow_sql", bean: new(model.SlowSQL)},
 		{name: "setting", bean: new(model.Setting)},
@@ -53,6 +54,13 @@ func (s *Store) Open(database config.Database) error {
 	engine.SetMaxOpenConns(32)
 	engine.SetMaxIdleConns(8)
 	engine.SetConnMaxLifetime(time.Hour)
+	// SQL 日志：带参数的语句 + 执行耗时，由 database.SHOW_SQL 控制（可热切换）
+	engine.SetLogger(&sqlLogger{level: core.LOG_INFO, showSQL: database.ShowSQL})
+	engine.ShowSQL(database.ShowSQL)
+	engine.ShowExecTime(database.ShowSQL)
+	if database.ShowSQL {
+		log.Println("[info] 已开启 SQL 日志（database.SHOW_SQL = true），每条 SQL 都会打印语句与耗时")
+	}
 	if err := engine.Ping(); err != nil {
 		_ = engine.Close()
 		return fmt.Errorf("连接 MySQL 失败: %w", err)
@@ -106,6 +114,18 @@ func (s *Store) ensureTables(engine *xorm.Engine, autoMigrate bool) error {
 
 // Repos 返回仓储集合。
 func (s *Store) Repos() repository.Repositories { return s.Repositories }
+
+// ApplyShowSQL 运行时开关 SQL 日志（供后台「运行配置」热切换，无需重启）。
+func (s *Store) ApplyShowSQL(enabled bool) {
+	if s.Engine == nil {
+		return
+	}
+	s.Engine.ShowSQL(enabled)
+	s.Engine.ShowExecTime(enabled)
+	s.Engine.Logger().SetLevel(core.LOG_INFO)
+	s.Engine.Logger().ShowSQL(enabled)
+	log.Printf("[info] SQL 日志已%s", map[bool]string{true: "开启", false: "关闭"}[enabled])
+}
 
 // Close 关闭数据库连接。
 func (s *Store) Close() error {

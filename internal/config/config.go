@@ -41,6 +41,8 @@ type Database struct {
 	Name     string
 	// AutoMigrate 为 true 时，仅当表不存在才自动建表；已存在的表不做任何结构同步。
 	AutoMigrate bool
+	// ShowSQL 为 true 时打印每条执行的 SQL（含参数与耗时），仅用于排障。
+	ShowSQL bool
 }
 
 // DSN 组装 go-sql-driver/mysql 连接串。
@@ -218,6 +220,8 @@ func (l *Loader) applyINI(cfg *Config, file *ini.File) {
 	cfg.Database.Host = host
 	cfg.Database.Port = db.Key("PORT").MustInt(port)
 	cfg.Database.AutoMigrate = db.Key("AUTO_MIGRATE").MustBool(true)
+	// 默认：dev 模式打印 SQL，prod 不打印（可用 SHOW_SQL 显式覆盖）
+	cfg.Database.ShowSQL = db.Key("SHOW_SQL").MustBool(cfg.RunMode == ModeDev)
 }
 
 // applyEnv 用环境变量覆盖配置，便于容器化部署。
@@ -249,6 +253,19 @@ func (l *Loader) applyEnv(cfg *Config) {
 	}
 	if v := l.env("WAF_DB_NAME"); v != "" {
 		cfg.Database.Name = v
+	}
+	if v := l.env("WAF_DB_SHOW_SQL"); v != "" {
+		cfg.Database.ShowSQL = parseToggle(v)
+	}
+}
+
+// parseToggle 解析 1/0、true/false、on/off 形式的开关值。
+func parseToggle(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "on", "yes", "y":
+		return true
+	default:
+		return false
 	}
 }
 
