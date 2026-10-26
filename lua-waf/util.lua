@@ -150,15 +150,15 @@ function _M.get_server_host()
 end
 
 -- WAF log record for json
+-- 统一交给 log_sink 处理：按 config_log_mode 决定写文件、写内存队列还是写 Redis 队列
 function _M.log_record(config_log_dir, attack_type, url, data, ruletag)
-    local log_path = config_log_dir
     local client_IP = _M.get_client_ip()
     local user_agent = _M.get_user_agent()
     local server_name = ngx.var.server_name
     local local_time = ngx.localtime()
     local area = _M.parse_ipinfo(client_IP)
-    -- local area = client_IP
-    local log_json_obj = {
+
+    local record = {
         client_ip = client_IP,
         local_time = local_time,
         server_name = server_name,
@@ -169,24 +169,18 @@ function _M.log_record(config_log_dir, attack_type, url, data, ruletag)
         req_data = data,
         rule_tag = ruletag,
     }
-    
-    if url==nil then
-        url = '-'
-    end
-    
-    local log_line = cjson.encode(log_json_obj)
-    -- local log_name = string.format("%s/%s_waf.log", log_path, ngx.today())
-    local log_name = string.format("%s/%s_waf.log", log_path, "x")
 
-    local file, err = io.open(log_name, "a+")
-    if err ~= nil then ngx.log(ngx.DEBUG, "file err:" .. err) end
-    if file == nil then
-        return
+    if url == nil then
+        record.req_url = '-'
     end
 
-    file:write(string.format("%s\n", log_line))
-    file:flush()
-    file:close()
+    -- 日志写入不得影响请求：内部失败只记录错误日志，不抛异常
+    local ok, err = pcall(function()
+        require("log_sink").write(record)
+    end)
+    if not ok then
+        ngx.log(ngx.ERR, "[waf] 记录 WAF 日志失败: ", tostring(err))
+    end
 end
 
 -- forbid ip response

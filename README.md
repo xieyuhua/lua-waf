@@ -277,6 +277,19 @@ API Key、模型名并启用，即可在攻击日志页勾选 1~20 条日志点�
 开关都在 `lua-waf/config.lua`：`config_post_multipart_check`、`config_post_max_size`、
 `config_post_max_parts`、`config_malformed_check`。
 
+**日志输出双模式（`config_log_mode`）**
+
+| 模式 | 链路 | 适用 |
+| --- | --- | --- |
+| `file` | 追加写 `/www/wwwlogs/waf/x_waf.log`（一行一条 JSON） | 已有采集器读文件入库 / 本地审计 |
+| `mysql` | 共享内存队列 → `ngx.timer` 每 2 秒批量 `INSERT INTO waf_log` | 单机高并发，不引入额外组件 |
+| `redis` | Redis 列表 → `ngx.timer` 批量 `INSERT INTO waf_log` | 多台 WAF 汇聚、削峰、MySQL 抖动缓冲 |
+
+请求链路不阻塞（内存写入 / 一次 Redis 命令），落库全部在 timer 中批量完成；
+队列满、Redis 不可用、共享内存未声明都会**自动回落写文件**，落库失败会把整批记录回队重试；
+多 worker 通过共享内存锁保证单写者。启用需建表（`lua-waf/sql/waf_log.sql`）、
+在 `nginx.conf` 声明 `waf_log_queue`/`waf_log_meta` 并加上 `init_worker_by_lua_file`。
+
 ---
 
 ## 九、部署提示

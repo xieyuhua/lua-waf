@@ -9,6 +9,28 @@ local _M = {
     config_waf_enable = "on",
     -- log dir
     config_log_dir = "/www/wwwlogs/waf/",
+    -- 日志输出模式：
+    --   file  = 直接追加写本地日志文件（默认，兼容 1.x）
+    --   mysql = 内存共享队列缓冲，定时批量异步写 MySQL（高并发，推荐）
+    --   redis = Redis 列表缓冲，定时批量异步写 MySQL（多机汇聚 / 削峰）
+    config_log_mode = "file",
+    -- 批量落库参数
+    config_log_batch_size = 200,      -- 每轮最多落库条数
+    config_log_flush_interval = 2,    -- 落库间隔（秒）
+    config_log_queue_size = 20000,    -- 内存队列上限（条），超出丢弃并计数，同时回落写文件
+    -- MySQL（mysql / redis 模式下写库使用；连接池由 lua-resty-mysql 维护）
+    config_mysql_host = "127.0.0.1",
+    config_mysql_port = 3306,
+    config_mysql_database = "waf",
+    config_mysql_user = "waf",
+    config_mysql_password = "waf",
+    config_mysql_keepalive = 60000,   -- 连接在池中的空闲时间（毫秒）
+    -- Redis（redis 模式使用）
+    config_redis_host = "127.0.0.1",
+    config_redis_port = 6379,
+    config_redis_password = "",
+    config_redis_db = 0,
+    config_redis_list_key = "waf:logs",
     -- rule setting
     config_rule_dir = "/www/server/nginx/x-waf/rules",
     -- enable/disable white url

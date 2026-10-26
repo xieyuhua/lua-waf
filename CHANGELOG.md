@@ -52,6 +52,15 @@
 
 ### lua-waf
 
+- **日志输出双模式**（`config_log_mode`）：
+  - `file`：保持 1.x 的本地文件追加写，供采集器读取；
+  - `mysql`：日志先入 `ngx.shared.waf_log_queue` 内存队列，`ngx.timer` 每 N 秒批量
+    `INSERT INTO waf_log`（默认 200 条 / 2 秒），单机高并发不阻塞请求；
+  - `redis`：日志 `RPUSH` 到 Redis 列表，定时批量落库，适合多机汇聚与削峰。
+  - 失败兜底：队列满 / Redis 不可用 / 共享内存未声明时自动回落写文件；落库失败整批回队重试；
+    多 worker 通过共享内存锁保证单写者；`log_consumer.stats()` 提供 inserted/failed/dropped/pending 计数。
+  - 新增文件：`log_sink.lua`、`log_mysql.lua`、`log_redis.lua`、`log_consumer.lua`、`init_worker.lua`、
+    `sql/waf_log.sql`；`util.log_record` 改为统一走 `log_sink`。
 - 新增 `body.lua`：请求体统一读取（含 `get_body_file` 临时文件场景），
   urlencoded / multipart 分段 / JSON 逐段检测；拦截缺失 boundary、分段数超限、分段头 NUL/裸换行、
   字段名注入、上传文件名路径穿越。
