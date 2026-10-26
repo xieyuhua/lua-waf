@@ -6,6 +6,7 @@ import { logApi } from '../api/log'
 import { ruleApi } from '../api/rule'
 import { ruleStore } from '../stores/rules'
 import { aiResultStore } from '../stores/ai'
+import { renderMarkdown } from '../utils/markdown'
 import { toBackendTime } from '../utils/format'
 import AiAnalyzeDialog from '../components/AiAnalyzeDialog.vue'
 import StatCard from '../components/StatCard.vue'
@@ -316,7 +317,7 @@ onMounted(() => {
             <div class="waf-card-title"><span class="bar"></span> AI 研判结果（本地缓存 10 分钟）</div>
             <div class="waf-card-extra">{{ aiResultOf(current).result.model || '-' }}</div>
           </div>
-          <div class="waf-markdown">{{ aiResultOf(current).result.content }}</div>
+          <div class="waf-markdown" v-html="renderMarkdown(aiResultOf(current).result.content)"></div>
         </div>
         <el-button type="primary" plain style="margin-top: 16px; width: 100%" @click="analyzeOne(current)">
           <el-icon><MagicStick /></el-icon> 交给 AI 分析这条日志

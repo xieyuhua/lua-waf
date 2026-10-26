@@ -547,8 +547,67 @@ html.dark .el-button:not(.el-button--primary):not(.el-button--danger):not(.is-te
 .waf-markdown {
   line-height: 1.75;
   font-size: 13.5px;
-  white-space: pre-wrap;
   word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.waf-markdown h3,
+.waf-markdown h4,
+.waf-markdown h5,
+.waf-markdown h6 {
+  margin: 16px 0 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--waf-text);
+}
+
+.waf-markdown h3:first-child,
+.waf-markdown h4:first-child {
+  margin-top: 0;
+}
+
+.waf-markdown p {
+  margin: 8px 0;
+}
+
+.waf-markdown ul,
+.waf-markdown ol {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+
+.waf-markdown li {
+  margin: 4px 0;
+}
+
+.waf-markdown blockquote {
+  margin: 10px 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--waf-primary);
+  background: var(--waf-surface-2);
+  border-radius: 0 8px 8px 0;
+  color: var(--waf-text-muted);
+}
+
+.waf-markdown code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--waf-surface-2);
+  border: 1px solid var(--waf-border);
+  font-family: var(--waf-mono-family, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px;
+  word-break: break-all;
+}
+
+.waf-markdown strong {
+  font-weight: 700;
+  color: var(--waf-text);
+}
+
+.waf-markdown hr {
+  border: none;
+  border-top: 1px dashed var(--waf-border);
+  margin: 14px 0;
 }
 
 /* 页面切换动画 */
@@ -668,11 +727,26 @@ html.dark .el-button:not(.el-button--primary):not(.el-button--danger):not(.is-te
     transform: translateX(0);
   }
 
-  /* 弹窗/抽屉自适应 */
+  /* 弹窗/抽屉自适应：限制高度并让正文可滚动（长内容如 AI 研判结果） */
   .el-dialog {
     width: 92% !important;
     max-width: 92vw;
-    margin-top: 8vh !important;
+    margin-top: 4vh !important;
+    max-height: 92vh;
+    display: flex;
+    flex-direction: column;
+  }
+  .el-dialog__header {
+    flex: 0 0 auto;
+  }
+  .el-dialog__body {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+  .el-dialog__footer {
+    flex: 0 0 auto;
   }
   .el-drawer {
     width: 88% !important;
@@ -777,6 +851,18 @@ html.dark .el-button:not(.el-button--primary):not(.el-button--danger):not(.is-te
   .waf-code {
     font-size: 11.5px;
     max-height: 300px;
+  }
+
+  /* 长文本（AI 研判结论）在窄屏强制换行，避免横向撑开 */
+  .waf-markdown,
+  .waf-code {
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
+  .waf-markdown pre,
+  .waf-markdown code {
+    overflow-x: auto;
+    white-space: pre-wrap;
   }
 
   .el-table .cell {

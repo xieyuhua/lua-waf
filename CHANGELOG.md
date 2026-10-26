@@ -17,6 +17,10 @@
 
 ### 修复
 
+- **移动端看不到 AI 研判结果**：长结论会把弹窗撑到 1300px 以上，而 `el-dialog__body`
+  是 `overflow: visible`，屏幕外的内容无法滚动查看。现在 ≤900px 时 `.el-dialog` 限高 92vh、
+  改为 flex 布局并让正文 `overflow-y: auto`（页脚按钮固定），同时结果出现后自动滚到「研判结果」区；
+  另新增 `utils/markdown.js`（先转义再转换标题/列表/代码/加粗）把结论渲染为易读排版，长链接强制换行。
 - **AI 配置保存一次后无法再修改**：`setting` 表的 `Set` 用 `Insert` 写入，第二次保存同键会撞主键
   （`Error 1062 Duplicate entry`），前端表现为"改不动"。改为「先更新，未命中再插入；并发撞主键退化为更新」，
   并新增 `internal/repository/mysql/setting_test.go`（`WAF_TEST_MYSQL_DSN` 存在时连真实库验证连续覆盖）

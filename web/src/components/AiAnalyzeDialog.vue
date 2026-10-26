@@ -1,8 +1,9 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { aiApi } from '../api/ai'
 import { aiResultStore } from '../stores/ai'
+import { renderMarkdown } from '../utils/markdown'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -16,6 +17,7 @@ const loading = ref(false)
 const question = ref('')
 const result = ref(null)
 const fromCache = ref(false)
+const resultRef = ref(null)
 
 const visible = computed({
   get: () => props.modelValue,
@@ -66,6 +68,13 @@ async function run(refresh = false) {
     loading.value = false
   }
 }
+
+// 结果渲染后滚到可视区（窄屏弹窗内滚动），避免"看不到结果"
+watch(result, async (value) => {
+  if (!value) return
+  await nextTick()
+  resultRef.value?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+})
 
 /** 打开弹窗时优先展示已有缓存结果 */
 watch(
@@ -125,7 +134,7 @@ watch(
       <span class="waf-muted" style="font-size: 12px">分析需先在「AI 设置」中配置模型</span>
     </div>
 
-    <div v-if="result" style="margin-top: 18px">
+    <div v-if="result" ref="resultRef" style="margin-top: 18px">
       <div class="waf-card-head">
         <div class="waf-card-title"><span class="bar"></span> 研判结果</div>
         <div class="waf-card-extra">
@@ -135,7 +144,7 @@ watch(
           模型 {{ result.model || '-' }} · 耗时 {{ result.elapsed_ms }}ms · tokens {{ result.usage?.total_tokens ?? '-' }}
         </div>
       </div>
-      <div class="waf-markdown">{{ result.content }}</div>
+      <div class="waf-markdown" v-html="renderMarkdown(result.content)"></div>
     </div>
 
     <template #footer>

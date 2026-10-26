@@ -87,6 +87,11 @@ npm run gen:map      # 重新生成 src/assets/world.geo.json
 实现方式：
 
 - **布局**：`waf-grid--2/3/4` 随断点降列；表单里并排的两列改用 `waf-inline-grid`（窄屏自动单列）；
+- **弹窗**：≤900px 时 `.el-dialog` 限高 92vh 并改为 flex 布局，正文 `overflow-y: auto`
+  —— 内容再长（如 AI 研判结论）也能在弹窗内滚动，页脚按钮始终可见；
+  AI 分析弹窗在结果出现后会自动滚到「研判结果」区，避免手机上"看不到结果"；
+- **AI 结论渲染**：`utils/markdown.js` 先把文本整体转义再转换标题/列表/代码/加粗，
+  既安全（防 XSS）又比纯文本易读；长单词与链接强制换行，不撑破卡片；
 - **表格**：次要列用 `v-if="!viewport.isMobile.value"` 隐藏（如日志的地区/站点、站点的后端/日志级别/最后变更），
   操作列 `fixed="right"` 固定并收窄，保证手机上始终能点到按钮；其余列可横向滑动；
 - **图表**：`ChartPanel` 在移动端把高度压到 220px，`ResizeObserver` 自动重绘；
