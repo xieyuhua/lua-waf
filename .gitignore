@@ -1,0 +1,28 @@
+# ---- 编译产物 ----
+/wafadmin
+/wafadmin.exe
+/server
+/server.exe
+*.exe
+*.test
+*.out
+
+# ---- 前端 ----
+web/node_modules/
+web/.vite/
+npm-debug.log*
+pnpm-debug.log*
+yarn-error.log*
+
+# 说明：web/dist 是 `go build` 的嵌入资源（//go:embed），需要纳入版本管理
+# 如需纯源码仓库，可取消下面一行注释，并在构建前执行 npm run build
+# web/dist/
+
+# ---- 运行时 ----
+*.log
+logs/
+tmp/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
