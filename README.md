@@ -10,6 +10,19 @@ v2 相比 1.x 做了两件大事：
 2. **后台改用 Vue 3 重写**：Vite + Element Plus + ECharts，支持亮/暗双主题、响应式布局与攻击地图大屏；
    构建产物通过 `//go:embed` 内嵌进二进制，仍是单文件部署。
 
+## 文档索引
+
+| 文档 | 内容 |
+| --- | --- |
+| 本文件 | 功能总览、快速开始、配置项、部署提示 |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 分层设计、扩展流程、错误与安全设计、配置下发链路 |
+| [docs/API.md](docs/API.md) | 全部 HTTP 接口的请求/响应结构与错误码 |
+| [web/README.md](web/README.md) | 前端工程结构、命令、接口约定、设计系统 |
+| [lua-waf/README.md](lua-waf/README.md) | openresty 侧 WAF：检测顺序、规则格式、请求体/畸形检测、配置项 |
+| [CHANGELOG.md](CHANGELOG.md) | 1.x → 2.0.0 变更清单 |
+
+**环境要求**：Go ≥ 1.24（构建二进制）、Node ≥ 20 与 npm（仅重建前端时需要）。
+
 ---
 
 ## 一、主要特性
@@ -162,9 +175,11 @@ go vet ./...
 
 统一响应：`{ "code": 0, "message": "ok", "data": ... }`，`code != 0` 表示业务错误。
 除登录与验证码外均需会话 Cookie；非 GET 请求需带 `X-CSRF-Token`（值与 `waf_csrf` Cookie 相同）。
+完整请求/响应字段、校验规则与错误码见 [docs/API.md](docs/API.md)。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
+| GET | `/api/health` | 健康检查（无需登录） |
 | GET | `/api/auth/captcha` | 获取图形验证码（base64 PNG） |
 | POST | `/api/auth/login` | 登录（验证码 + 口令） |
 | POST | `/api/auth/logout` | 注销 |
@@ -237,7 +252,7 @@ API Key、模型名并启用，即可在攻击日志页勾选 1~20 条日志点�
   解决**大请求体 / 分段上传绕过检测**的老问题（1.x 只扫 `get_post_args`）。
 - 按 Content-Type 分段：`x-www-form-urlencoded` 逐参数解码、`multipart/form-data` 逐段解析、
   JSON 与其它类型整体检测。
-- multiplex 分段畸形：缺失 `boundary`、分段数量超过 `config_post_max_parts`、分段头含 NUL/裸换行、
+- multipart 分段畸形：缺失 `boundary`、分段数量超过 `config_post_max_parts`、分段头含 NUL/裸换行、
   字段名注入（`"`、`;`、CR/LF）、上传文件名包含路径穿越 → 直接拦截。
 - 超过 `config_post_max_size`（默认 8MB）只记录日志不深度扫描，避免影响正常上传。
 
@@ -262,6 +277,35 @@ API Key、模型名并启用，即可在攻击日志页勾选 1~20 条日志点�
    生成 `*.rule` 到 `RULE_PATH`，两次操作都会执行 `nginx -t` 后再 `-s reload`。
 3. 多台 WAF 部署时，把彼此的 `API_SERVERS` 填全并保持 `API_KEY` 一致，即可一键同步。
 4. 生产环境务必：修改默认口令、设置 `SESSION_SECRET`、启用 HTTPS 后把 `SESSION_SECURE = true`。
+
+### 规则/配置更新后要不要重启 nginx？
+
+**不需要重启，`nginx -s reload` 即可，而且后台已经自动执行。**
+
+规则在 `init_by_lua`（配置加载阶段）一次性读入 worker 内存（`waf.load_rules()` → `_M.RULES`），
+因此改了磁盘上的 `.rule` 文件必须让 worker 重建才能生效；`reload` 会重建 worker 并重新执行
+`init_by_lua`，而 `restart` 只是更粗暴地做同一件事并会打断连接。
+
+后台下发链（`internal/service/sync.go` → `internal/nginx/runner.go`）：
+
+```
+写入 <type>.rule / <域名>.conf  →  nginx -t  →  通过才 nginx -s reload
+                                          └─ 不通过则中止并向前端返回错误
+```
+
+需要**完全重启**的少数情况：
+
+- 修改 `lua_shared_dict` 的名称或大小（共享内存尺寸变更 reload 不生效）；
+- 升级 / 替换 nginx 二进制（`-s upgrade` 或重启）；
+- `nginx.conf` 主进程级参数（worker 数、pid 路径等）调整且 reload 后行为异常时。
+
+规则「没生效」的排查顺序：
+
+1. 是否点了「下发全部规则」（只改数据库不发文件等于没生效）；
+2. 后台 `conf/app.ini` 的 `RULE_PATH` 是否与 `lua-waf/config.lua` 的 `config_rule_dir` 完全一致（含尾斜杠）；
+3. 多台 WAF 是否每台都同步成功（看接口返回的 `nodes`）；
+4. 客户端是否仍压在老 worker 的长连接上（upstream 配了 `keepalive 32`，几十秒内沿用旧规则属正常）；
+5. 调试期可临时把 `lua_code_cache` 设为 `off`，改 lua 即时生效（仅调试，性能损失大）。
 
 ## 十、许可
 

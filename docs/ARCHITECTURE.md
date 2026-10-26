@@ -110,8 +110,11 @@ web/src/
 ├── components/           # 指标卡、图表容器、AI 分析弹窗、侧边栏、顶栏
 ├── views/                # 每个菜单一个页面
 ├── styles/main.css       # 设计系统：色板、卡片、导航、表格、动效、暗色主题
+├── assets/world.geo.json # 攻击地图数据（scripts/build-world-geo.mjs 生成）
 └── utils/format.js       # 时间/数字/语句格式化
 ```
+
+工程细节（命令、接口约定、设计 token、新增页面步骤）见 [web/README.md](../web/README.md)。
 
 设计规范要点：
 
@@ -128,3 +131,37 @@ web/src/
   未登录 401、CSRF 403、登录全流程（含验证码单次有效）、站点 CRUD、规则子菜单、
   慢 SQL 时间查询、攻击地图、看板、同步签名拒绝。
 - 演示模式可直接 `go run .` 手工验收，或按 README 用无头浏览器截图核对界面。
+
+## 9. 规则与配置的生效链路
+
+配置写盘并不等于生效，链路如下：
+
+```
+后台操作                      磁盘                       openresty
+──────────────────────────────────────────────────────────────────────────
+「下发全部规则」  →  RULE_PATH/<type>.rule  →  reload → 新 worker 执行
+「站点同步」      →  NGINX_VHOSTS/<域名>.conf          init_by_lua →
+                                                        waf.load_rules()
+「节点同步」(其他机器) → 各节点自身重复上述两步
+```
+
+要点：
+
+- 规则表在 **worker 内存**（`waf.lua` 的 `_M.RULES`），由 `init_by_lua_file` 在配置加载时填充，
+  因此必须让 worker 重建（`reload`）才会看到新规则；`restart` 不是必需的，且会打断连接。
+- `SyncService.ApplyRules/ApplySites` 的步骤固定为：**写文件 → `nginx -t` → `nginx -s reload`**，
+  `-t` 失败即中止并把错误返回前端，坏配置不会生效。
+- 演示模式（`RUN_MODE=demo`）下 `nginx.Manager.DryRun = true`：只渲染、不写盘、不 reload，
+  便于本机体验。
+- `RULE_PATH`（后台）必须与 lua `config_rule_dir` 完全一致，含尾斜杠，否则规则写了却读不到。
+- 只有修改 `lua_shared_dict` 名称/大小、升级 nginx 二进制等场景才需要完全重启。
+
+## 10. 文档地图
+
+| 文档 | 面向 |
+| --- | --- |
+| [../README.md](../README.md) | 使用与部署（功能、快速开始、配置项） |
+| [API.md](API.md) | 前后端联调（接口结构、错误码） |
+| [../lua-waf/README.md](../lua-waf/README.md) | openresty 侧 WAF（检测顺序、规则格式、开关） |
+| [../web/README.md](../web/README.md) | 前端开发（工程结构、设计系统） |
+| [../CHANGELOG.md](../CHANGELOG.md) | 版本变更记录 |

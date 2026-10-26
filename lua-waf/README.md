@@ -1,68 +1,179 @@
-# X-WAF
+# lua-waf：openresty 侧 WAF
 
-X-WAF是一款适用中、小企业的云WAF系统，让中、小企业也可以非常方便地拥有自己的免费云WAF。
+本目录是运行在 openresty（nginx + ngx_lua）中的 WAF 实现：拦截 SQL 注入、XSS、路径穿越、命令执行、
+扫描器、CC 攻击等，并把命中记录写入日志，由 [wafadmin](../README.md) 后台可视化管理。
 
-优先级： 站点管理->蜘蛛ip->地区管理限制->ip白名单->ip黑名单->user-agent->白名单地址->黑名单地址->cc攻击->cookie过滤->url参数过滤->post参数过滤
+waf 与 wafadmin 必须部署在同一台服务器上：后台负责生成 vhost 与规则文件，waf 负责在请求链路上执行。
 
-```
-    -- 一秒钟5次
-    config_cc_rate = "5/1",
-    config_ipcc_check = 'on',
-    -- ip请求，超过120次，则封禁2小时
-    config_ipcc_rate = "120/7200",
-```
-
-加密为二进制
-
-/www/server/nginx/luajit/bin/luajit -b access.lua access11.lua
-
-
-# 主要特性
-
-- 支持对常见WEB攻击的防御，如sql注入、xss、路径穿越，阻断扫描器的扫描等
-- 对持对CC攻击的防御
-- waf为反向模式，后端保护的服务器可直接用内网IP，不需暴露在公网中
-- 支持主流厂商CDN/蜘蛛IP，站点控制，基于ip2region的ip地址信息查看
-- 支持IP、URL、Referer、User-Agent、Get、Post、Cookies参数型的防御策略
-- 安装、部署与维护非常简单
-- 支持在线管理waf规则
-- 支持在线管理后端服务器
-- 多台waf的配置可自动同步
-- 跨平台，支持在linux、unix、mac和windows操作系统中部署
-
-# 架构简介
-x-waf由waf自身与Waf管理后台组成：
-
-- [waf](https://github.com/xsec-lab/x-waf)：基于openresty + lua开发。
-- [waf管理后台](https://github.com/xsec-lab/x-waf-admin)：采用golang + xorm + macrom开发的，支持二进制的形式部署。
-
-waf和waf-admin必须同时部署在每一台云WAF服务器中。
-
-
-## v2 新增：请求体与畸形请求防御
+## 1. 文件说明
 
 | 文件 | 作用 |
 | --- | --- |
-| `body.lua` | 请求体检测：统一读取（含 `get_body_file` 临时文件场景）、按 Content-Type 分段解析 urlencoded / multipart / json，逐段套用 `post.rule`；拦截缺失 boundary、分段数量超限、分段头 NUL/裸换行、字段名注入、上传文件名路径穿越 |
-| `malformed.lua` | 畸形请求检测：TE/CL 冲突、重复 Content-Length、非单一 chunked、原始报文 NUL 与裸 CR/LF、非规范百分号编码、解码后控制字符、超长请求行、缺失/非法 Host |
+| `nginx.conf` | 参考主配置：声明 `lua_shared_dict limit/badGuys`、`init_by_lua_file`、`access_by_lua_file`，并 `include vhosts/*.conf` |
+| `init.lua` | 配置加载时执行一次：`waf = require("waf")` 并 `waf.load_rules()` 把规则读入内存 |
+| `access.lua` | 请求入口（access 阶段）：解析真实 IP → CDN/蜘蛛 IP 放行 → URL 白名单 → `waf.check()` |
+| `waf.lua` | 检测调度中心：各项检查函数与统一的 `check()` 顺序；规则表缓存在 `_M.RULES` |
+| `malformed.lua` | **v2 新增**：畸形请求检测（HTTP 走私、裸 CRLF、非法编码、超长请求行、Host 校验） |
+| `body.lua` | **v2 新增**：请求体检测（urlencoded / multipart 分段 / JSON / 大请求体落盘） |
+| `config.lua` | 全部开关与阈值 |
+| `util.lua` | 工具：读取规则文件、取客户端 IP、写攻击日志、封禁 IP、输出拦截页 |
+| `iputils.lua` / `ip2region.lua` / `iop.lua` / `bitop.lua` | IP 归属地解析（ip2region）与 CDN/蜘蛛 IP 段数据 |
+| `ip2region.db` | IP 库数据文件 |
+| `rules/*.rule` | 规则文件，由后台「下发全部规则」生成 |
 
-开关（`config.lua`）：
+## 2. 请求处理流程
 
-```lua
-config_post_check = "on",              -- 请求体检测总开关
-config_post_multipart_check = "on",    -- multipart / 分段上传检测
-config_post_max_size = 8388608,        -- 深度检测上限（8MB），超过只记录不阻断
-config_post_max_parts = 200,           -- multipart 分段数量上限
-config_malformed_check = "on",         -- 畸形请求检测总开关
+```
+access_by_lua_file access.lua
+   ├─ real_ip = 从 X_real_ip / X_Forwarded_For 取真实 IP
+   ├─ ip_open_list 命中（主流 CDN/蜘蛛）→ 直接放行
+   ├─ URL 白名单（whiteUrl.rule）→ 放行
+   └─ waf.check()  ← 命中即记录日志并输出拦截页
 ```
 
-调用顺序在 `waf.lua` 的 `_M.check()` 中：畸形请求检测 → 白名单 IP → 黑名单 IP → UA → 白名单 URL →
-URL → CC → Cookie → URL 参数 → POST/请求体。
+`waf.check()` 的检测顺序（先命中先返回）：
 
+```
+1. malformed_request_check   畸形请求（走私 / 头部注入 / 非法编码）
+2. white_ip_check            IP 白名单（放行）
+3. black_ip_check            IP 黑名单（拦截）
+4. user_agent_attack_check   UA 特征（扫描器）
+5. white_url_check           URL 白名单（放行）
+6. url_attack_check          URL 路径特征
+7. cc_attack_check           CC 频率
+8. cookie_attack_check       Cookie 特征
+9. url_args_attack_check     GET 参数特征
+10. post_attack_check        请求体特征（含 multipart 分段）
+```
 
-## 致谢
+此外还有 `bad_guy_check`：`ngx.shared.badGuys` 中已被累计拦截的 IP，用于「幻影/诱饵」后端切换。
 
-1. 感谢春哥开源的[openresty](https://openresty.org)
-1. 感谢unixhot开源的[waf](https://github.com/unixhot/waf)
-1. 感谢无闻开源的[macron](https://go-macaron.com/)和[peach](https://peachdocs.org/)
-1. 感谢lunny开源的[xorm](https://github.com/go-xorm/xorm)
+## 3. 规则文件
+
+每个类型一个 JSON 文件，内容为数组，**键名必须保持首字母大写**（lua 侧按 `rule["RuleItem"]` 取值）：
+
+```json
+[{ "Id": 4, "RuleType": "args", "RuleItem": "\\.\\./" },
+ { "Id": 7, "RuleType": "args", "RuleItem": "select.+(from|limit)" }]
+```
+
+| 规则类型 | 文件 | 作用 |
+| --- | --- | --- |
+| `args` | `args.rule` | GET 参数注入特征 |
+| `post` | `post.rule` | 请求体注入特征（含 multipart 分段内容） |
+| `cookie` | `cookie.rule` | Cookie 特征 |
+| `url` | `url.rule` | URL 路径特征 |
+| `useragent` | `useragent.rule` | 扫描器/爬虫 UA |
+| `headers` | `headers.rule` | 自定义请求头特征（后台可维护，默认无内置规则） |
+| `blackip` | `blackip.rule` | IP 黑名单 |
+| `whiteip` | `whiteip.rule` | IP 白名单 |
+| `whiteUrl` | `whiteUrl.rule` | URL 白名单 |
+
+`RuleItem` 为 **PCRE** 片段（`ngx.re.find` 匹配），不是完整的 Lua 模式串。
+
+## 4. v2 新增：请求体与畸形请求防御
+
+### 4.1 body.lua（请求体 / POST 分段）
+
+1. **统一读取**：先 `ngx.req.get_body_data()`；返回空说明请求体已写入临时文件（大请求体、分段上传），
+   此时用 `ngx.req.get_body_file()` 读取并检测 —— 修复了 1.x 只扫 `get_post_args()` 导致
+   **大包 / multipart 绕过**的问题。
+2. **按类型分段**：
+   - `application/x-www-form-urlencoded`：逐参数解码后检测键与值；
+   - `multipart/form-data`：逐段解析 `Content-Disposition`，检测字段名、文件名与内容；
+   - `application/json` 及其他：整体检测。
+3. **分段畸形拦截**：缺失 `boundary`、分段头没有 `\r\n\r\n` 结束符、分段数量超过 `config_post_max_parts`、
+   分段头含 NUL 或裸换行、字段名含 `"`/`;`/CRLF、上传文件名含 `/`、`\` 或 `../`。
+4. **体量保护**：超过 `config_post_max_size` 只记录一条「请求体超限」日志，不做深度扫描，
+   避免影响正常大文件上传。
+
+### 4.2 malformed.lua（畸形请求）
+
+| 检查 | 说明 | 规则标签 |
+| --- | --- | --- |
+| TE + CL 同时存在 | 请求走私 TE.CL | `http.smuggling.te_cl` |
+| 重复 Content-Length 取值不一致 | 请求走私 CL.CL | `http.smuggling.cl_cl` |
+| Content-Length 非纯数字 | 畸形头 | `http.malformed.cl` |
+| Transfer-Encoding 非单一 `chunked` | 请求走私 | `http.smuggling.te` |
+| 原始报文含 NUL | 头部注入 | `http.malformed.nul` |
+| 头部出现裸 CR / LF | 头部注入 | `http.malformed.crlf` |
+| 非规范百分号编码（`%` 后非两位十六进制） | 编码绕过 | `http.malformed.percent` |
+| URI 或解码后出现控制字符 | 编码绕过 | `http.malformed.control*` |
+| URI 存在 `%25xx` 二次编码 | 编码绕过（**默认只记日志不拦截**） | `http.malformed.double_encode` |
+| 请求行超过 4096 字节 | 资源滥用 | `http.malformed.uri_len` |
+| Host 缺失或含非法字符 | 畸形请求 | `http.malformed.host` |
+
+> 二次编码默认只记录日志，避免误杀正常业务；如需拦截，把 `malformed.lua` 中
+> `_M.report(..., false)` 的最后一个参数去掉即可。
+
+## 5. 配置项（config.lua）
+
+| 配置 | 默认值 | 说明 |
+| --- | --- | --- |
+| `config_waf_enable` | `"on"` | WAF 总开关（关时只记日志不拦截） |
+| `config_log_dir` | `/www/wwwlogs/waf/` | 攻击日志目录 |
+| `config_rule_dir` | `/www/server/nginx/x-waf/rules` | 规则文件目录，**必须与后台 `RULE_PATH` 一致** |
+| `config_white_ip_check` / `config_black_ip_check` | `"on"` | 黑白名单开关 |
+| `config_white_url_check` / `config_url_check` | `"on"` | URL 白名单 / URL 特征 |
+| `config_url_args_check` | `"on"` | GET 参数 |
+| `config_user_agent_check` | `"on"` | UA |
+| `config_cookie_check` | `"on"` | Cookie |
+| `config_post_check` | `"on"` | 请求体检测（v2 起覆盖 multipart 与大请求体） |
+| `config_post_multipart_check` | `"on"` | multipart / 分段上传检测 |
+| `config_post_max_size` | `8388608` | 请求体深度检测上限（8MB） |
+| `config_post_max_parts` | `200` | multipart 分段数量上限 |
+| `config_malformed_check` | `"on"` | 畸形请求检测 |
+| `config_cc_check` / `config_cc_rate` | `"on"` / `"300/60"` | 单 URI 频率：60 秒 300 次 |
+| `config_ipcc_check` / `config_ipcc_rate` | `"on"` / `"120/7200"` | 单 IP 频率：7200 秒 120 次 |
+| `config_waf_model` | `"html"` | 拦截输出方式：`html` / `redirect` |
+| `config_waf_redirect_url` | `""` | `redirect` 模式下的跳转地址 |
+| `config_output_html` | 内置模板 | 拦截页 HTML，`%s` 为客户端 IP |
+| `config_expire_time` | `600` | 封禁过期时间（秒） |
+
+## 6. 部署与生效
+
+1. 把整个目录放到 `/www/server/nginx/x-waf/`，确保 `nginx.conf` 中
+   `lua_package_path` 覆盖该目录（新增的 `body.lua`、`malformed.lua` 必须与 `waf.lua` 同级）。
+2. 在 `http {}` 中声明共享内存与入口：
+
+```nginx
+lua_shared_dict limit 100m;
+lua_shared_dict badGuys 100m;
+lua_code_cache on;
+init_by_lua_file /www/server/nginx/x-waf/init.lua;
+access_by_lua_file /www/server/nginx/x-waf/access.lua;
+```
+
+3. **规则/配置更新后不需要重启 nginx**：规则在 `init_by_lua` 阶段读入内存，
+   `nginx -s reload` 会重建 worker 并重新加载；后台「下发全部规则」「站点同步」已自动执行
+   `nginx -t` → `nginx -s reload`（检查不通过则不重载）。
+   只有修改 `lua_shared_dict` 名称/大小、升级 nginx 二进制时才需要完全重启。
+4. 若担心源码泄露，可用 luajit 预编译：
+
+```bash
+/www/server/nginx/luajit/bin/luajit -b access.lua access11.lua
+```
+
+5. 调试技巧：
+   - 临时把 `lua_code_cache` 设为 `off`，改 lua 立即生效（性能差，仅调试用）；
+   - `nginx -t` 校验语法；`error_log ... info;` 查看 `waf.lua` 打印的规则加载日志；
+   - 拦截页与命中记录都可在后台「攻击日志」中按 IP / 类型 / 时间范围查询。
+
+## 7. 日志格式
+
+`util.log_record()` 每条写一行 JSON，字段与后台 `waf_log` 表一一对应：
+
+```json
+{"client_ip":"221.229.166.13","local_time":"2026-10-26 22:16:52","server_name":"www.example.com",
+ "user_agent":"sqlmap/1.7.2","attack_type":"CC攻击","req_url":"/download?name=..%2F",
+ "area":"中国-北京","req_data":"id=1' AND 1=1 --","rule_tag":"args->cc"}
+```
+
+后台按 `local_time` 做时间范围筛选、按 `area` 做攻击地图定位、按 `attack_type` 做类型统计。
+
+## 8. 致谢
+
+1. 感谢春哥开源的 [openresty](https://openresty.org)
+2. 感谢 unixhot 开源的 [waf](https://github.com/unixhot/waf)
+3. 感谢 lunny 开源的 [xorm](https://github.com/go-xorm/xorm)
+4. 感谢 [ip2region](https://github.com/lionsoul2014/ip2region) 提供的 IP 归属地库
