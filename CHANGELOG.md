@@ -17,6 +17,12 @@
 
 ### 修复
 
+- **列表筛选/搜索不生效（日志、站点、账号、慢 SQL）**：xorm 的 `Count()` 执行后会重置 session 上的
+  WHERE 条件（`queryRows` 里 `defer resetStatement()`），而各仓储把统计与列表复用在同一个 session 上，
+  导致「总数是过滤后的、列表却是全量」。改为统计与列表各用一个独立 session。
+  新增 `internal/repository/mysql/log_test.go`（`WAF_TEST_MYSQL_DSN` 时连真实库）覆盖
+  攻击类型 / 来源 IP / 关键词 / 分页 / 站点关键词过滤，日志表不存在时才建表、
+  已存在时绝不做 Sync2，避免测试改动线上结构。
 - **跨设备/跨浏览器看不到历史研判结果**：新增 `GET /api/ai/results/{logId}` 与
   `AnalyzeCache.FindByLog`，日志详情抽屉在本地无结果时自动拉服务端缓存并落到本地，手机可直接查看电脑上的分析；
   侧边栏底部显示 `X-WAF v版本 · fe-构建指纹`（`/api/system/info` 新增 `frontend_version`），

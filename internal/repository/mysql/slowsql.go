@@ -26,14 +26,22 @@ func (r *slowSQLRepo) List(ctx context.Context, q model.SlowSQLQuery) ([]model.S
 	}
 
 	where, args := r.buildFilter(q)
+
+	// Count 会重置 session 的 WHERE，统计与列表各用一个 session
+	countSession := r.engine.NewSession()
+	defer countSession.Close()
+	if where != "" {
+		countSession = countSession.Where(where, args...)
+	}
+	total, err := countSession.Count(new(model.SlowSQL))
+	if err != nil {
+		return nil, 0, err
+	}
+
 	session := r.engine.NewSession()
 	defer session.Close()
 	if where != "" {
 		session = session.Where(where, args...)
-	}
-	total, err := session.Count(new(model.SlowSQL))
-	if err != nil {
-		return nil, 0, err
 	}
 
 	items := make([]model.SlowSQL, 0, q.Size)

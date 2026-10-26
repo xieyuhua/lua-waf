@@ -43,18 +43,26 @@ func (r *logRepo) List(ctx context.Context, q model.LogQuery) ([]model.WafLog, i
 	}
 
 	where, args := r.buildFilter(q)
-	session := r.engine.NewSession()
-	defer session.Close()
+
+	// 注意：xorm 的 Count 执行后会重置 session 上的 WHERE 条件（queryRows 里 defer resetStatement），
+	// 因此统计与列表必须使用两个独立 session，否则列表会退化为全量查询。
+	countSession := r.engine.NewSession()
+	defer countSession.Close()
 	if where != "" {
-		session = session.Where(where, args...)
+		countSession = countSession.Where(where, args...)
 	}
-	total, err := session.Count(new(model.WafLog))
+	total, err := countSession.Count(new(model.WafLog))
 	if err != nil {
 		return nil, 0, err
 	}
 
+	listSession := r.engine.NewSession()
+	defer listSession.Close()
+	if where != "" {
+		listSession = listSession.Where(where, args...)
+	}
 	items := make([]model.WafLog, 0, q.Size)
-	if err := session.Desc("id").Limit(q.Size, q.Offset()).Find(&items); err != nil {
+	if err := listSession.Desc("id").Limit(q.Size, q.Offset()).Find(&items); err != nil {
 		return nil, 0, err
 	}
 	return items, total, nil

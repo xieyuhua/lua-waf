@@ -24,18 +24,24 @@ func (r *userRepo) List(ctx context.Context, q model.ListQuery) ([]model.User, i
 		return nil, 0, err
 	}
 
-	session := r.engine.NewSession()
-	defer session.Close()
+	// Count 会重置 session 的 WHERE，统计与列表各用一个 session
+	countSession := r.engine.NewSession()
+	defer countSession.Close()
 	if q.Keyword != "" {
-		session = session.Where("user_name LIKE ?", "%"+q.Keyword+"%")
+		countSession = countSession.Where("user_name LIKE ?", "%"+q.Keyword+"%")
 	}
-	total, err := session.Count(new(model.User))
+	total, err := countSession.Count(new(model.User))
 	if err != nil {
 		return nil, 0, err
 	}
 
+	listSession := r.engine.NewSession()
+	defer listSession.Close()
+	if q.Keyword != "" {
+		listSession = listSession.Where("user_name LIKE ?", "%"+q.Keyword+"%")
+	}
 	items := make([]model.User, 0, q.Size)
-	if err := session.OrderBy("id").Limit(q.Size, q.Offset()).Find(&items); err != nil {
+	if err := listSession.OrderBy("id").Limit(q.Size, q.Offset()).Find(&items); err != nil {
 		return nil, 0, err
 	}
 	return items, total, nil

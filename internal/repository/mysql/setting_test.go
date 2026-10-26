@@ -73,3 +73,6 @@ func TestSettingRepoOverwrite(t *testing.T) {
 		t.Fatalf("全部配置中 %s = %q", key, all[key])
 	}
 }
+
+// dsnFromEnv 返回集成测试使用的 MySQL DSN。
+func dsnFromEnv() string { return os.Getenv("WAF_TEST_MYSQL_DSN") }
