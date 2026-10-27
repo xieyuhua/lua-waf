@@ -115,6 +115,11 @@ func New(opts Options) (*App, error) {
 	}, repos.Log)
 	consumer.Logf = func(format string, args ...any) { log.Printf(format, args...) }
 	deps.Ingest = consumer
+	if cfg.LogIngest.Enabled {
+		log.Printf("[info] 日志入库消费者已启用：%s <- %s（批量 %d）", cfg.LogIngest.Addr, cfg.LogIngest.ListKey, cfg.LogIngest.Batch)
+	} else {
+		log.Printf("[info] 日志入库消费者未启用（[log] INGEST_ENABLED=off）：lua 直连 MySQL 或 file 模式时属正常")
+	}
 
 	// lua-waf config.lua 在线编辑：保存后可用 nginx reload 生效
 	deps.LuaConfig = &service.LuaConfigService{
@@ -132,9 +137,10 @@ func New(opts Options) (*App, error) {
 	}
 
 	instance := &App{
-		cfg:     cfg,
-		repos:   repos,
-		closers: builder.closers,
+		cfg:      cfg,
+		repos:    repos,
+		consumer: consumer,
+		closers:  builder.closers,
 		server: &http.Server{
 			Addr:              cfg.Addr(),
 			Handler:           server.Handler(),

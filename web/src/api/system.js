@@ -11,5 +11,7 @@ export const systemApi = {
   /** 读取配置文件原文 */
   rawConfig: () => api.get('/system/config/raw'),
   /** 从磁盘重新加载配置 */
-  reloadConfig: () => api.post('/system/config/reload')
+  reloadConfig: () => api.post('/system/config/reload'),
+  /** 日志入库消费者状态（队列长度、消费/写入/失败计数） */
+  ingest: () => api.get('/system/ingest')
 }

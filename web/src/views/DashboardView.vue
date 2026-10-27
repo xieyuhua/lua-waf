@@ -1,19 +1,43 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import StatCard from '../components/StatCard.vue'
 import ChartPanel from '../components/ChartPanel.vue'
 import { dashboardApi } from '../api/dashboard'
+import { systemApi } from '../api/system'
 import { themeStore } from '../stores/theme'
 
 const loading = ref(true)
 const summary = ref(null)
+
+// 日志入库队列（lua 写 Redis、Go 消费入库）的实时指标
+const ingest = ref(null)
+// 队列深度采样，用于画 5 分钟走势
+const ingestSamples = ref([])
+let ingestTimer = null
+
+/** 拉取入库队列指标（失败静默，不影响看板其它数据） */
+async function loadIngest() {
+  try {
+    const data = await systemApi.ingest()
+    ingest.value = data
+    if (data?.enabled) {
+      const now = new Date()
+      const label = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
+      const samples = [...ingestSamples.value, { label, queue: data.queue_length ?? 0, processing: data.processing_length ?? 0 }]
+      ingestSamples.value = samples.slice(-30)
+    }
+  } catch (error) {
+    /* 静默：入库队列不可用不影响看板 */
+  }
+}
 
 /** 加载看板数据 */
 async function load() {
   loading.value = true
   try {
     summary.value = await dashboardApi.summary()
+    await loadIngest()
   } catch (error) {
     ElMessage.error(error.message || '加载看板失败')
   } finally {
@@ -22,6 +46,56 @@ async function load() {
 }
 
 const palette = computed(() => themeStore.chartPalette.value)
+
+/** 入库队列状态徽标 */
+const ingestStatus = computed(() => {
+  const data = ingest.value
+  if (!data) return { text: '未知', type: 'info' }
+  if (!data.enabled) return { text: '未启用', type: 'info' }
+  if (!data.connected) return { text: 'Redis 断开', type: 'danger' }
+  if ((data.queue_length ?? 0) > 10000) return { text: '队列积压', type: 'danger' }
+  if ((data.queue_length ?? 0) > 1000) return { text: '轻微积压', type: 'warning' }
+  return { text: '运行中', type: 'success' }
+})
+
+/** 队列深度走势 */
+const ingestTrendOption = computed(() => {
+  const samples = ingestSamples.value
+  return {
+    grid: { left: 8, right: 12, top: 24, bottom: 4, containLabel: true },
+    tooltip: { trigger: 'axis' },
+    legend: { show: true, right: 0, top: 0, itemWidth: 10, itemHeight: 8, textStyle: { fontSize: 11 } },
+    xAxis: {
+      type: 'category',
+      data: samples.map((item) => item.label),
+      boundaryGap: false,
+      axisLine: { lineStyle: { color: 'rgba(148,163,184,0.35)' } },
+      axisLabel: { color: '#8f9bb3', fontSize: 10 }
+    },
+    yAxis: { type: 'value', splitLine: { lineStyle: { color: 'rgba(148,163,184,0.16)' } }, axisLabel: { color: '#8f9bb3', fontSize: 10 } },
+    series: [
+      {
+        name: '待处理',
+        type: 'line',
+        smooth: true,
+        showSymbol: false,
+        areaStyle: { opacity: 0.18 },
+        lineStyle: { width: 2, color: palette.value.accent },
+        itemStyle: { color: palette.value.accent },
+        data: samples.map((item) => item.queue)
+      },
+      {
+        name: '处理中',
+        type: 'line',
+        smooth: true,
+        showSymbol: false,
+        lineStyle: { width: 2, color: '#f59e0b' },
+        itemStyle: { color: '#f59e0b' },
+        data: samples.map((item) => item.processing)
+      }
+    ]
+  }
+})
 
 const trendOption = computed(() => {
   const trend = summary.value?.trend ?? []
@@ -93,7 +167,14 @@ const topIPs = computed(() => (summary.value?.today_ips ?? []).slice(0, 5))
 const recentLogs = computed(() => summary.value?.recent_logs ?? [])
 const recentSlow = computed(() => summary.value?.recent_slow_sql ?? [])
 
-onMounted(load)
+onMounted(() => {
+  load()
+  ingestTimer = setInterval(loadIngest, 10000)
+})
+
+onBeforeUnmount(() => {
+  if (ingestTimer) clearInterval(ingestTimer)
+})
 </script>
 
 <template>
@@ -139,6 +220,61 @@ onMounted(load)
         </div>
       </div>
 
+      <!-- 日志入库队列：lua 写 Redis、Go 消费入库 -->
+      <div class="waf-card" style="margin-bottom: 16px">
+        <div class="waf-card-head">
+          <div class="waf-card-title"><span class="bar"></span> 日志入库队列</div>
+          <div style="display: flex; align-items: center; gap: 10px">
+            <el-tag size="small" :type="ingestStatus.type" effect="light">{{ ingestStatus.text }}</el-tag>
+            <span class="waf-muted" style="font-size: 11.5px">每 10 秒刷新</span>
+          </div>
+        </div>
+
+        <div class="ingest-metrics">
+          <div class="ingest-metric">
+            <div class="ingest-value">{{ ingest?.queue_length ?? 0 }}</div>
+            <div class="ingest-label">待处理（Redis 队列）</div>
+          </div>
+          <div class="ingest-metric">
+            <div class="ingest-value">{{ ingest?.processing_length ?? 0 }}</div>
+            <div class="ingest-label">处理中（入库中）</div>
+          </div>
+          <div class="ingest-metric">
+            <div class="ingest-value">{{ ingest?.written ?? 0 }}</div>
+            <div class="ingest-label">本次启动已入库</div>
+          </div>
+          <div class="ingest-metric">
+            <div class="ingest-value" :style="{ color: (ingest?.failed ?? 0) > 0 ? 'var(--waf-danger)' : 'inherit' }">
+              {{ ingest?.failed ?? 0 }}
+            </div>
+            <div class="ingest-label">失败 / 丢弃</div>
+          </div>
+        </div>
+
+        <div class="ingest-meta">
+          <span>队列键 <code class="waf-mono">{{ ingest?.source || '-' }}</code></span>
+          <span v-if="ingest?.last_flush_at">最近入库 {{ ingest.last_flush_at }}</span>
+          <span v-if="ingest?.last_error" class="ingest-error" :title="ingest.last_error">
+            最近错误：{{ ingest.last_error.slice(0, 80) }}
+          </span>
+        </div>
+
+        <ChartPanel
+          v-if="ingest?.enabled && ingestSamples.length > 1"
+          :option="ingestTrendOption"
+          height="150px"
+        />
+
+        <el-alert
+          v-if="ingest && !ingest.enabled"
+          type="info"
+          show-icon
+          :closable="false"
+          style="margin-top: 10px"
+          title="未启用「lua 写 Redis → Go 消费入库」"
+          description="启用需要三处配套：① config.lua 的 config_log_mode = redis；② config.lua 的 config_redis_consume = off（避免与 nginx 抢队列）；③ conf/app.ini 的 [log] INGEST_ENABLED = on 并填 REDIS_ADDR。当前使用 file / nginx 直连 MySQL 模式时该卡片为 0 属正常。"
+        />
+      </div>
       <div class="waf-grid waf-grid--3">
         <div class="waf-card">
           <div class="waf-card-head">
@@ -195,6 +331,59 @@ onMounted(load)
 </template>
 
 <style scoped>
+.ingest-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.ingest-metric {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--waf-border);
+  background: var(--waf-surface-2);
+}
+
+.ingest-value {
+  font-size: 22px;
+  font-weight: 750;
+  color: var(--waf-text);
+  line-height: 1.2;
+}
+
+.ingest-label {
+  font-size: 11.5px;
+  color: var(--waf-text-muted);
+  margin-top: 2px;
+}
+
+.ingest-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-size: 11.5px;
+  color: var(--waf-text-muted);
+  margin-bottom: 6px;
+}
+
+.ingest-meta code {
+  font-size: 11px;
+}
+
+.ingest-error {
+  color: var(--waf-danger);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+@media (max-width: 900px) {
+  .ingest-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 .ip-list,
 .slow-list,
 .log-list {

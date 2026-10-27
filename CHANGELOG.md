@@ -38,6 +38,9 @@
 
 ### 新增功能
 
+- **安全概览新增「日志入库队列」卡片**：展示待处理（Redis 队列）、处理中、本次启动已入库、失败/丢弃四项指标，
+  以及运行状态徽标（运行中 / 轻微积压 / 队列积压 / Redis 断开 / 未启用）、队列键、最近入库时间与最近错误，
+  并用 5 分钟队列深度折线（待处理 / 处理中）观察积压趋势；每 10 秒自动刷新，未启用时给出三处开关的启用指引。
 - **日志入库改为「lua 写 Redis → Go 消费入库」**（原「lua 直连 MySQL」保留）：
   新增 `pkg/redis`（零依赖 RESP 客户端：BRPOPLPUSH / LREM / LLEN / RPUSH / RPOP）、
   `internal/ingest` 消费者（先入 `waf:logs:processing` 再入库、成功后 LREM，崩溃自动回灌，at-least-once）、
