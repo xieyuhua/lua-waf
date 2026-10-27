@@ -62,3 +62,62 @@ func TestKnownEntries(t *testing.T) {
 		t.Fatalf("内置地区词表过少: %d", geo.Default.Known())
 	}
 }
+
+// TestResolveIP2RegionText 校验 ip2region 拼接串（含运营商/云厂商后缀）能落到城市粒度。
+func TestResolveIP2RegionText(t *testing.T) {
+	cases := []struct {
+		area     string
+		wantName string
+	}{
+		{"中国重庆重庆电信", "重庆"},
+		{"中国浙江杭州阿里云", "杭州"},
+		{"中国重庆重庆移动", "重庆"},
+		{"中国北京北京移动/基站WiFi", "北京"},
+		{"中国河南郑州移动", "郑州"},
+		{"中国香港", "香港"},
+		{"美国加利福尼亚州山景城Google", "山景城"},
+		{"美国休斯顿", "休斯顿"},
+		{"美国伊利诺伊州芝加哥", "芝加哥"},
+		{"日本东京都东京Google Cloud", "东京"},
+		{"西班牙安达卢西亚自治区博柳略斯帕尔－德尔孔达多", "西班牙"},
+		{"印尼西爪哇省万隆", "万隆"},
+		{"立陶宛", "立陶宛"},
+		{"孟加拉国", "孟加拉国"},
+	}
+
+	for _, item := range cases {
+		point, ok := geo.Default.Resolve(item.area)
+		if !ok {
+			t.Fatalf("%q 应能解析", item.area)
+		}
+		if point.Name != item.wantName {
+			t.Fatalf("%q 解析为 %q，期望 %q", item.area, point.Name, item.wantName)
+		}
+		if point.Lat == 0 && point.Lon == 0 {
+			t.Fatalf("%q 坐标为空", item.area)
+		}
+	}
+}
+
+// TestResolveUnlocatable 校验无法定位的占位文本返回 false。
+func TestResolveUnlocatable(t *testing.T) {
+	for _, area := range []string{"保留", "", "内网IP内网IP", "亚太地区", "GoogleDNS", "未知"} {
+		if _, ok := geo.Default.Resolve(area); ok {
+			t.Fatalf("%q 不应被解析为具体位置", area)
+		}
+	}
+}
+
+// TestResolvePrefersCityOverCountry 校验城市优先级高于国家。
+func TestResolvePrefersCityOverCountry(t *testing.T) {
+	point, ok := geo.Default.Resolve("美国加利福尼亚州洛杉矶ColoCrossing")
+	if !ok {
+		t.Fatal("应能解析")
+	}
+	if point.Name != "洛杉矶" {
+		t.Fatalf("应优先命中城市，实际 %q", point.Name)
+	}
+	if point.Domestic {
+		t.Fatal("美国城市不应标记为境内")
+	}
+}

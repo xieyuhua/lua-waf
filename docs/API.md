@@ -82,7 +82,20 @@
 }
 ```
 
-### GET /api/attack-map?range=today|all
+### GET /api/attack-map
+
+攻击地图快照。除 `points / total / top_countries / top_types / trend / recent` 外，新增：
+
+| 字段 | 说明 |
+| --- | --- |
+| `status` | 攻击状态：`level`（normal/elevated/high）、`message`、`last_attack`、`today_count`、`window_count`（近 5 分钟）、`rate_per_min` |
+| `target` | 攻击箭头终点（防护目标）：`name`、`area`、`lat`、`lon`，来自 `[waf] MAP_TARGET` |
+| `unresolved` | 归属地无法解析的来源 IP 数量（如「保留」「内网IP」），不计入 `points` |
+
+`points[].name / lat / lon` 按 IP 归属地解析（城市 → 省/州 → 国家三层匹配），
+因此同一国家不同城市会分别落点。
+
+### GET /api/logs?range=today|all
 
 攻击地图大屏数据。
 

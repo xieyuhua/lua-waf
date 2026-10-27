@@ -39,6 +39,12 @@ onBeforeUnmount(() => {
 })
 
 watch(() => props.option, render, { deep: true })
+
+// 暴露实例，便于父组件做缩放、导出等交互（地图缩放会用到）
+defineExpose({
+  /** 返回 ECharts 实例（尚未挂载时为 null） */
+  getInstance: () => chart
+})
 </script>
 
 <template>

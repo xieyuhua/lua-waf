@@ -24,29 +24,68 @@ type entry struct {
 }
 
 // Resolver 按内置词表解析地区文本。
+//
+// 词表分三层，依次匹配：具体城市 → 省/州 → 国家，
+// 这样「美国加利福尼亚州山景城Google」会命中「山景城」而不是「美国」。
 type Resolver struct {
-	entries []entry
+	cities    []entry
+	regions   []entry
+	countries []entry
 }
 
-// Default 是内置解析器（城市在前、国家在后，优先匹配更具体的地区）。
-var Default = Resolver{entries: entries}
+// Default 是内置解析器（城市优先、省/州次之、国家兜底）。
+var Default = Resolver{
+	cities:    append(append([]entry{}, cities...), entries...),
+	regions:   regions,
+	countries: countries,
+}
 
 // Resolve 解析地区文本，未命中时返回 false。
+//
+// area 常见形式为 ip2region 的拼接串（如「中国重庆重庆电信」），
+// 解析前会去掉运营商与云厂商后缀；「保留 / 内网IP」等占位值视为无法定位。
 func (r Resolver) Resolve(area string) (Point, bool) {
 	normalized := normalize(area)
-	if normalized == "" {
+	if normalized == "" || isUnknownArea(normalized) {
 		return Point{}, false
 	}
-	for _, item := range r.entries {
-		if strings.Contains(normalized, item.keyword) {
-			return item.point, true
+	cleaned := stripProvider(normalized)
+
+	for _, list := range [][]entry{r.cities, r.regions, r.countries} {
+		for _, item := range list {
+			if item.keyword != "" && strings.Contains(cleaned, item.keyword) {
+				return item.point, true
+			}
 		}
 	}
 	return Point{}, false
 }
 
-// Known 表示当前词表是否为空，便于测试断言。
-func (r Resolver) Known() int { return len(r.entries) }
+// isUnknownArea 判断是否为无法定位的占位文本。
+func isUnknownArea(area string) bool {
+	// 内网地址可能是重复拼接（如「内网IP内网IP」），按前缀判断
+	if strings.HasPrefix(area, "内网") || strings.HasPrefix(area, "局域网") {
+		return true
+	}
+	for _, item := range unknownAreas {
+		if area == item {
+			return true
+		}
+	}
+	return false
+}
+
+// stripProvider 去掉运营商 / 云厂商后缀（长词优先匹配）。
+func stripProvider(area string) string {
+	out := area
+	for _, suffix := range providerSuffixes {
+		out = strings.ReplaceAll(out, suffix, " ")
+	}
+	return strings.Join(strings.Fields(out), " ")
+}
+
+// Known 表示当前词表条目数，便于测试断言。
+func (r Resolver) Known() int { return len(r.cities) + len(r.regions) + len(r.countries) }
 
 // normalize 统一分隔符，便于关键字匹配。
 func normalize(area string) string {

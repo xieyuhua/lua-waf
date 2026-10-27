@@ -75,6 +75,8 @@ type AttackMapSnapshot struct {
 	Target AttackTarget `json:"target"`
 	// Status 为顶部的攻击状态。
 	Status AttackStatus `json:"status"`
+	// Unresolved 为归属地无法定位的来源 IP 数量（例如 ip2region 返回「保留」）。
+	Unresolved int64 `json:"unresolved"`
 }
 
 // AttackMapService 负责攻击来源的地理解析与聚合。
@@ -121,7 +123,9 @@ func (s *AttackMapService) Snapshot(ctx context.Context, day string) (*AttackMap
 	for _, stat := range ipStats {
 		point, ok := s.Resolver.Resolve(stat.Area)
 		if !ok {
-			point = geo.Point{Name: "未知"}
+			// 归属地无法解析（如「保留」「内网IP」）：不计入地图，只做计数提示
+			snapshot.Unresolved++
+			continue
 		}
 
 		entry, exists := buckets[point.Name]

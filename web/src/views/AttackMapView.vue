@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
 import worldGeo from '../assets/world.geo.json'
@@ -9,6 +9,13 @@ import { themeStore } from '../stores/theme'
 
 const loading = ref(true)
 const snapshot = ref(null)
+const mapRef = ref(null)
+// 地图缩放/平移状态（故意用普通对象：georoam 时不触发重渲染，数据刷新时按此还原视野）
+const DEFAULT_ZOOM = 1.05
+const MIN_ZOOM = 1
+const MAX_ZOOM = 8
+const DEFAULT_CENTER = [12, 18]
+const roamState = { zoom: DEFAULT_ZOOM, center: DEFAULT_CENTER }
 const range = ref('all')
 const autoRefresh = ref(true)
 let timer = null
@@ -117,9 +124,11 @@ const mapOption = computed(() => {
     },
     geo: {
       map: 'world',
-      roam: false,
-      zoom: 1.05,
-      center: [12, 18],
+      // 开启缩放与拖拽：滚轮 / 双指缩放，按住拖动平移
+      roam: true,
+      scaleLimit: { min: MIN_ZOOM, max: MAX_ZOOM },
+      zoom: roamState.zoom,
+      center: roamState.center,
       itemStyle: {
         areaColor: theme.area,
         borderColor: theme.border,
@@ -240,6 +249,48 @@ const topCountries = computed(() => snapshot.value?.top_countries ?? [])
 const recent = computed(() => snapshot.value?.recent ?? [])
 const maxTypeNum = computed(() => Math.max(1, ...topTypes.value.map((item) => item.num)))
 
+/** 绑定地图缩放事件，记录当前视野 */
+function attachRoam() {
+  const chart = mapRef.value?.getInstance()
+  if (!chart) return
+  chart.off('georoam')
+  chart.on('georoam', () => {
+    const geo = chart.getOption()?.geo?.[0]
+    if (!geo) return
+    roamState.zoom = geo.zoom ?? DEFAULT_ZOOM
+    roamState.center = geo.center ?? DEFAULT_CENTER
+  })
+}
+
+/** 按倍率缩放地图（>1 放大，<1 缩小）；以当前视野中心为基准 */
+function zoomBy(factor) {
+  const chart = mapRef.value?.getInstance()
+  if (!chart) return
+
+  const geo = chart.getOption()?.geo?.[0]
+  const current = geo?.zoom ?? roamState.zoom
+  const zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Number((current * factor).toFixed(3))))
+  roamState.zoom = zoom
+  roamState.center = geo?.center ?? roamState.center
+
+  chart.setOption({ geo: { zoom, center: roamState.center } })
+}
+
+/** 重置视野 */
+function resetZoom() {
+  roamState.zoom = DEFAULT_ZOOM
+  roamState.center = DEFAULT_CENTER
+  const chart = mapRef.value?.getInstance()
+  if (!chart) return
+  chart.setOption({ geo: { zoom: DEFAULT_ZOOM, center: DEFAULT_CENTER } })
+}
+
+// 数据到达后重新绑定（ChartPanel 首次渲染完成后实例才可用）
+watch(points, async () => {
+  await nextTick()
+  attachRoam()
+})
+
 onMounted(() => {
   load()
   timer = setInterval(() => {
@@ -286,6 +337,7 @@ onBeforeUnmount(() => {
         <span class="fact"><b>{{ (status.rate_per_min || 0).toFixed(1) }}</b> 次/分</span>
         <span class="fact">最近攻击 <b>{{ status.last_attack || '-' }}</b></span>
         <span class="fact target">防护目标 <b>{{ target?.name || '-' }}</b></span>
+        <span v-if="snapshot?.unresolved" class="fact" title="归属地无法解析（如「保留」「内网IP」）">未定位 <b>{{ snapshot.unresolved }}</b> 个来源</span>
       </span>
     </div>
 
@@ -336,7 +388,15 @@ onBeforeUnmount(() => {
       <!-- 中间地图 -->
       <div class="screen-col screen-col--center">
         <div class="screen-card screen-map">
-          <ChartPanel v-if="points.length" :option="mapOption" height="100%" />
+          <div v-if="points.length" class="map-tools">
+            <el-button-group>
+              <el-button size="small" title="放大" @click="zoomBy(1.35)"><el-icon><ZoomIn /></el-icon></el-button>
+              <el-button size="small" title="缩小" @click="zoomBy(1 / 1.35)"><el-icon><ZoomOut /></el-icon></el-button>
+              <el-button size="small" title="重置视野" @click="resetZoom"><el-icon><RefreshLeft /></el-icon></el-button>
+            </el-button-group>
+            <span class="map-hint">滚轮 / 双指缩放 · 拖拽平移</span>
+          </div>
+          <ChartPanel v-if="points.length" ref="mapRef" :option="mapOption" height="100%" />
           <div v-else class="empty-hint">
             <el-icon><Location /></el-icon> 暂无可定位的攻击来源
           </div>
@@ -543,11 +603,39 @@ onBeforeUnmount(() => {
 }
 
 .screen-map {
+  position: relative;
   flex: 1;
   min-height: 320px;
   padding: 4px;
   display: flex;
+  flex-direction: column;
   overflow: hidden;
+}
+
+.map-tools {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.map-hint {
+  font-size: 11px;
+  color: var(--map-text-muted);
+  background: var(--map-card-bg);
+  border: 1px solid var(--map-border);
+  border-radius: 999px;
+  padding: 2px 9px;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .map-hint {
+    display: none;
+  }
 }
 .metric-row {
   display: grid;
