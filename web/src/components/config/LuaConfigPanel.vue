@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { luaApi } from '../api/lua'
+import { luaApi } from '../../api/lua'
 
 const loading = ref(true)
 const saving = ref(false)
@@ -115,15 +115,12 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="waf-page">
-    <div class="waf-page-head">
-      <div>
-        <h1 class="waf-page-title"><span class="dot"></span> WAF 配置（lua）</h1>
-        <p class="waf-page-sub">
-          在线修改 openresty 侧的 config.lua；保存后点「保存并生效」执行 nginx -t 与 reload
-        </p>
-      </div>
-      <div style="display: flex; gap: 10px">
+  <div class="config-panel">
+    <div class="panel-toolbar">
+      <p class="panel-hint">
+        openresty 侧的 config.lua；保存后点「保存并生效」执行 nginx -t 与 reload
+      </p>
+      <div class="panel-actions">
         <el-button text :disabled="!meta.exists" @click="viewRaw"><el-icon><Document /></el-icon> 查看原文</el-button>
         <el-button :loading="reloading" @click="reloadOnly"><el-icon><RefreshRight /></el-icon> 仅 reload</el-button>
         <el-button :disabled="!meta.exists || !dirty" :loading="saving" @click="save(false)">

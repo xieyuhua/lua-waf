@@ -36,6 +36,14 @@
   并新增 `internal/repository/mysql/setting_test.go`（`WAF_TEST_MYSQL_DSN` 存在时连真实库验证连续覆盖）
   与 `internal/service/ai_test.go`（反复保存、掩码保留密钥、默认值裁剪、非法配置校验）。
 
+### 变更
+
+- **「运行配置」与「WAF 配置」合并为「系统设置」一个页面**：不再在侧边栏占两个菜单项，
+  改为页面内选项卡切换（`运行配置（app.ini）` / `WAF 配置（config.lua）`），
+  选项卡状态写入地址栏 `?tab=app|waf`，刷新/分享链接可定位；旧地址 `/settings/lua` 自动重定向到
+  `/settings/system?tab=waf`；两个面板抽出为 `components/config/{AppConfigPanel,LuaConfigPanel}.vue`，
+  各自保留原有保存/重载/reload 按钮，移动端选项卡与工具栏自动换行。
+
 ### 修复
 
 - **AI 研判结果只显示模型/耗时/tokens、正文一片空白**：根因是模型返回的正文字段为空

@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { systemApi } from '../api/system'
+import { systemApi } from '../../api/system'
 
 const loading = ref(true)
 const saving = ref(false)
@@ -172,15 +172,12 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="waf-page">
-    <div class="waf-page-head">
-      <div>
-        <h1 class="waf-page-title"><span class="dot"></span> 运行配置</h1>
-        <p class="waf-page-sub">
-          编辑 conf/app.ini 的运行时参数；保存后会立即热更新，标注「需重启」的项需重启进程才生效
-        </p>
-      </div>
-      <div style="display: flex; gap: 10px">
+  <div class="config-panel">
+    <div class="panel-toolbar">
+      <p class="panel-hint">
+        conf/app.ini 运行时参数；保存即写回文件并热更新，标注「需重启」的项需重启进程才生效
+      </p>
+      <div class="panel-actions">
         <el-button text @click="viewRaw"><el-icon><Document /></el-icon> 查看原文</el-button>
         <el-button :loading="reloading" @click="reloadFromDisk"><el-icon><RefreshLeft /></el-icon> 从磁盘重载</el-button>
         <el-button type="primary" :loading="saving" @click="save"><el-icon><Check /></el-icon> 保存配置</el-button>

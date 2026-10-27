@@ -54,8 +54,7 @@ const groups = [
   {
     name: '系统设置',
     items: [
-      { label: '运行配置', icon: 'Tools', to: '/settings/system' },
-      { label: 'WAF 配置', icon: 'Cpu', to: '/settings/lua' },
+      { label: '系统设置', icon: 'Tools', to: '/settings/system' },
       { label: '外观设置', icon: 'Brush', to: '/settings/appearance' },
       { label: 'AI 设置', icon: 'MagicStick', to: '/settings/ai' },
       { label: '账号设置', icon: 'Setting', to: '/settings/account' }

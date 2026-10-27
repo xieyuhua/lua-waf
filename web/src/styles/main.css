@@ -610,6 +610,48 @@ html.dark .el-button:not(.el-button--primary):not(.el-button--danger):not(.is-te
   margin: 14px 0;
 }
 
+/* 配置面板（运行配置 / WAF 配置）顶部工具栏 */
+.config-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.panel-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  border: 1px solid var(--waf-border);
+  border-radius: 12px;
+  background: var(--waf-surface-2);
+}
+
+.panel-hint {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--waf-text-muted);
+}
+
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 640px) {
+  .panel-toolbar {
+    align-items: stretch;
+  }
+  .panel-actions {
+    justify-content: flex-start;
+  }
+}
+
 /* 页面切换动画 */
 .fade-slide-enter-active,
 .fade-slide-leave-active {

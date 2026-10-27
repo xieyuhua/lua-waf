@@ -37,8 +37,8 @@ v2 相比 1.x 做了两件大事：
 | 慢 SQL 统计 | 时间范围查询（预设 + 自定义）、总数/均值/P95/超 1s 统计、耗时排行、明细与清理 |
 | AI 设置 | OpenAI 兼容接口配置（地址/密钥/模型/温度/超时/提示词），连通性测试 |
 | 账号管理 | 后台账号 CRUD、口令修改、登录失败限流、图形验证码、CSRF 防护 |
-| 运行配置 | 网页编辑 `conf/app.ini`（端口、路径、密钥、分页、慢 SQL 阈值、数据库），保存即写回文件并热更新，标注需重启项，支持查看原文与从磁盘重载 |
-| WAF 配置 | 网页编辑 lua-waf 的 `config.lua`（检测开关、限速阈值、请求体/畸形检测、自动封禁、日志模式与 MySQL/Redis 连接），保留注释与格式、自动备份，保存后可一键 `nginx -t && reload` |
+| 系统设置 · 运行配置 | 网页编辑 `conf/app.ini`（端口、路径、密钥、分页、慢 SQL 阈值、数据库），保存即写回文件并热更新，标注需重启项，支持查看原文与从磁盘重载 |
+| 系统设置 · WAF 配置 | 网页编辑 lua-waf 的 `config.lua`（检测开关、限速阈值、请求体/畸形检测、自动封禁、日志模式与 MySQL/Redis 连接），保留注释与格式、自动备份，保存后可一键 `nginx -t && reload` |
 | 外观设置 | 亮色 / 暗色 / 跟随系统 + 6 套主题色，顶栏一键切换，设置本地持久化 |
 | 移动端 | 全站自适应：≤900px 侧栏转抽屉、表格次要列自动隐藏且操作列固定、图表与表单自动单列，手机可直接查日志/封 IP |
 
@@ -193,7 +193,7 @@ go vet ./...
 | server | `SSL_CERT_DIR` | 站点证书目录（`<域名>/fullchain.pem`、`privkey.pem`） |
 | server | `API_SERVERS` | 集群内其它节点，逗号分隔 |
 | waf | `RULE_PATH` / `LOG_DIR` | 规则文件目录 / WAF 日志目录 |
-| waf | `LUA_CONFIG` | lua-waf 的 `config.lua` 路径（后台「系统设置 → WAF 配置」可在线修改），默认 `/www/server/nginx/x-waf/config.lua` |
+| waf | `LUA_CONFIG` | lua-waf 的 `config.lua` 路径（后台「系统设置 → WAF 配置」选项卡可在线修改），默认 `/www/server/nginx/x-waf/config.lua` |
 | waf | `MAP_TARGET` | 攻击地图的防护目标位置（如 `中国-北京`），用于绘制「来源 → 目标」攻击箭头 |
 | pager | `PAGEMax` | 默认分页大小 |
 | security | `SESSION_SECRET` | 会话签名密钥，留空则每次启动随机（重启需重新登录） |

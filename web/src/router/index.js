@@ -63,17 +63,13 @@ export const routes = [
         meta: { title: '外观设置', crumb: '系统设置 / 外观设置' }
       },
       {
-        path: 'settings/lua',
-        name: 'lua-config',
-        component: () => import('../views/LuaConfigView.vue'),
-        meta: { title: 'WAF 配置', crumb: '系统设置 / WAF 配置' }
-      },
-      {
         path: 'settings/system',
         name: 'system-config',
-        component: () => import('../views/SystemConfigView.vue'),
-        meta: { title: '运行配置', crumb: '系统设置 / 运行配置' }
+        component: () => import('../views/SystemSettingsView.vue'),
+        meta: { title: '系统设置', crumb: '系统设置' }
       },
+      // 兼容旧地址：WAF 配置已并入「系统设置」的选项卡
+      { path: 'settings/lua', redirect: { path: 'settings/system', query: { tab: 'waf' } } },
       {
         path: 'settings/ai',
         name: 'ai-settings',
