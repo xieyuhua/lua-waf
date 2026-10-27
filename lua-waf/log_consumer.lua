@@ -38,6 +38,11 @@ function _M.collect()
     end
 
     if _M.mode() == "redis" then
+        -- 由后台 Go 消费者入库时（config_redis_consume = "off"），nginx 只生产不消费
+        if (config.config_redis_consume or "on") == "off" then
+            return {}
+        end
+
         local records, err = log_redis.drain(batch)
         if records == nil then
             ngx.log(ngx.WARN, "[waf] 从 Redis 获取日志失败: ", tostring(err))

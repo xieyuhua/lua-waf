@@ -36,6 +36,18 @@
   并新增 `internal/repository/mysql/setting_test.go`（`WAF_TEST_MYSQL_DSN` 存在时连真实库验证连续覆盖）
   与 `internal/service/ai_test.go`（反复保存、掩码保留密钥、默认值裁剪、非法配置校验）。
 
+### 新增功能
+
+- **日志入库改为「lua 写 Redis → Go 消费入库」**（原「lua 直连 MySQL」保留）：
+  新增 `pkg/redis`（零依赖 RESP 客户端：BRPOPLPUSH / LREM / LLEN / RPUSH / RPOP）、
+  `internal/ingest` 消费者（先入 `waf:logs:processing` 再入库、成功后 LREM，崩溃自动回灌，at-least-once）、
+  `LogRepository.BatchCreate`（xorm 多行 INSERT）；`conf/app.ini` 新增 `[log]` 段
+  （`INGEST_ENABLED` / `REDIS_ADDR` / `REDIS_PASSWORD` / `REDIS_DB` / `REDIS_LIST_KEY` / `INGEST_BATCH` / `INGEST_BLOCK_MS`，
+  支持 `WAF_LOG_INGEST`、`WAF_REDIS_ADDR`、`WAF_REDIS_PASSWORD` 覆盖）；新增状态接口
+  `GET /api/system/ingest`（运行状态、队列/处理中长度、累计消费/写入/失败、最近错误）。
+  lua 侧新增 `config_redis_consume` 开关（默认 `on`）：设为 `off` 时 nginx 只 `RPUSH` 不消费，
+  避免与 Go 消费者抢队列；该开关已加入「系统设置 → WAF 配置」表单。默认 `INGEST_ENABLED = off`，不影响现有部署。
+
 ### 修复
 
 - **AI 分析报 `{"code":1500,"message":"调用大模型接口失败，请检查网络与接口地址"}`**：实测确认是**请求超时**——

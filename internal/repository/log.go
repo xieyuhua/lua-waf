@@ -21,6 +21,8 @@ type LogRepository interface {
 	Get(ctx context.Context, id int64) (*model.WafLog, error)
 	// List 按筛选条件分页查询日志。
 	List(ctx context.Context, q model.LogQuery) ([]model.WafLog, int64, error)
+	// BatchCreate 批量写入攻击日志（供 Redis 消费者落库），返回写入条数。
+	BatchCreate(ctx context.Context, items []model.WafLog) (int64, error)
 	// Count 返回日志总数。
 	Count(ctx context.Context) (int64, error)
 	// CountOnDay 返回指定日期的日志条数。

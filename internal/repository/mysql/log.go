@@ -35,6 +35,26 @@ func (r *logRepo) Get(ctx context.Context, id int64) (*model.WafLog, error) {
 	return item, nil
 }
 
+// BatchCreate 批量写入攻击日志（一次 INSERT 多行）。
+func (r *logRepo) BatchCreate(ctx context.Context, items []model.WafLog) (int64, error) {
+	defer r.observer.Trace(ctx, "log.batch_create", "INSERT INTO waf_log (...) VALUES (...),(...)")()
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	if len(items) == 0 {
+		return 0, nil
+	}
+
+	// xorm 支持传切片指针做批量插入
+	batch := make([]model.WafLog, len(items))
+	copy(batch, items)
+	affected, err := r.engine.Insert(&batch)
+	if err != nil {
+		return 0, err
+	}
+	return affected, nil
+}
+
 // List 按筛选条件分页查询日志，按 ID 倒序返回。
 func (r *logRepo) List(ctx context.Context, q model.LogQuery) ([]model.WafLog, int64, error) {
 	defer r.observer.Trace(ctx, "log.list", "SELECT * FROM waf_log WHERE ... ORDER BY id DESC LIMIT ? OFFSET ?")()

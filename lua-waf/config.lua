@@ -31,6 +31,11 @@ local _M = {
     config_redis_password = "",
     config_redis_db = 0,
     config_redis_list_key = "waf:logs",
+-- 是否由 nginx（log_consumer）自己消费 Redis 并入 MySQL
+--   "on"  ：nginx 内部消费（默认，单机自给自足）
+--   "off" ：只生产不消费，由后台 wafadmin（Go）消费入库（[log] INGEST_ENABLED = on）
+-- 两者必须二选一，否则会出现两个消费者抢队列
+config_redis_consume = "on",
     -- rule setting
     config_rule_dir = "/www/server/nginx/x-waf/rules",
     -- enable/disable white url

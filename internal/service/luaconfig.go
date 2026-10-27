@@ -158,6 +158,7 @@ func (s *LuaConfigService) fields() []luaField {
 		{Key: "config_redis_password", Label: "密码", Type: luaTypeSecret, Group: groupRedis},
 		{Key: "config_redis_db", Label: "库号", Type: luaTypeNumber, Group: groupRedis, Min: 0, Max: 255},
 		{Key: "config_redis_list_key", Label: "队列键名", Type: luaTypeText, Group: groupRedis},
+		{Key: "config_redis_consume", Label: "由 nginx 自身消费", Type: luaTypeSwitch, Group: groupRedis, Desc: "关闭后 nginx 只写队列，由后台 wafadmin 消费入库（需同时开启 [log] INGEST_ENABLED）"},
 	}
 }
 

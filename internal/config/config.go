@@ -55,6 +55,23 @@ func (d Database) DSN() string {
 }
 
 // Config 是应用的全部可配置项。
+// LogIngestConfig 是日志 Redis 消费者配置（lua 写 Redis，Go 批量写 MySQL）。
+type LogIngestConfig struct {
+	// Enabled 表示是否启动消费者。
+	Enabled bool
+	// Addr 为 Redis 地址（host:port）。
+	Addr string
+	// Password 为 Redis 密码，可为空。
+	Password string
+	// DB 为库号。
+	DB int
+	// ListKey 为 lua 写入的列表键（需与 config.lua 的 config_redis_list_key 一致）。
+	ListKey string
+	// Batch 为单批入库条数。
+	Batch int
+	// BlockMS 为阻塞等待毫秒数。
+	BlockMS int
+}
 type Config struct {
 	// Source 记录配置文件的加载来源，（defaults）表示全部使用默认值。
 	Source  string
@@ -74,6 +91,8 @@ type Config struct {
 	MapTarget string
 	// LuaConfigPath 为 lua-waf 的 config.lua 路径（后台可在线修改）。
 	LuaConfigPath string
+	// LogIngest 为「lua 写 Redis、Go 消费入库」的消费端配置。
+	LogIngest LogIngestConfig
 
 	PageSize int
 
@@ -161,17 +180,25 @@ func (l *Loader) Load() (*Config, error) {
 // defaults 返回内置默认配置。
 func (l *Loader) defaults() *Config {
 	return &Config{
-		RunMode:          ModeDev,
-		AppVer:           "2.0",
-		HTTPPort:         5000,
-		APIServers:       []string{"127.0.0.1"},
-		NginxBin:         "/usr/local/openresty/nginx/sbin/nginx",
-		NginxVhosts:      "/usr/local/openresty/nginx/conf/vhosts/",
-		RulePath:         "/usr/local/openresty/nginx/conf/waf/rules/",
-		SSLCertDir:       "/www/server/panel/vhost/cert",
-		WafLogDir:        "/www/wwwlogs/waf",
-		MapTarget:        "中国-北京",
-		LuaConfigPath:    "/www/server/nginx/x-waf/config.lua",
+		RunMode:       ModeDev,
+		AppVer:        "2.0",
+		HTTPPort:      5000,
+		APIServers:    []string{"127.0.0.1"},
+		NginxBin:      "/usr/local/openresty/nginx/sbin/nginx",
+		NginxVhosts:   "/usr/local/openresty/nginx/conf/vhosts/",
+		RulePath:      "/usr/local/openresty/nginx/conf/waf/rules/",
+		SSLCertDir:    "/www/server/panel/vhost/cert",
+		WafLogDir:     "/www/wwwlogs/waf",
+		MapTarget:     "中国-北京",
+		LuaConfigPath: "/www/server/nginx/x-waf/config.lua",
+		LogIngest: LogIngestConfig{
+			Enabled: false,
+			Addr:    "127.0.0.1:6379",
+			DB:      0,
+			ListKey: "waf:logs",
+			Batch:   200,
+			BlockMS: 2000,
+		},
 		PageSize:         10,
 		SessionTTL:       12 * time.Hour,
 		CaptchaTTL:       5 * time.Minute,
@@ -203,6 +230,16 @@ func (l *Loader) applyINI(cfg *Config, file *ini.File) {
 	cfg.WafLogDir = waf.Key("LOG_DIR").MustString(cfg.WafLogDir)
 	cfg.MapTarget = waf.Key("MAP_TARGET").MustString(cfg.MapTarget)
 	cfg.LuaConfigPath = waf.Key("LUA_CONFIG").MustString(cfg.LuaConfigPath)
+
+	// 日志入库：lua 写 Redis，本进程消费后批量写 MySQL
+	logSection := file.Section("log")
+	cfg.LogIngest.Enabled = parseToggle(logSection.Key("INGEST_ENABLED").MustString(boolText(cfg.LogIngest.Enabled)))
+	cfg.LogIngest.Addr = logSection.Key("REDIS_ADDR").MustString(cfg.LogIngest.Addr)
+	cfg.LogIngest.Password = logSection.Key("REDIS_PASSWORD").MustString(cfg.LogIngest.Password)
+	cfg.LogIngest.DB = logSection.Key("REDIS_DB").MustInt(cfg.LogIngest.DB)
+	cfg.LogIngest.ListKey = logSection.Key("REDIS_LIST_KEY").MustString(cfg.LogIngest.ListKey)
+	cfg.LogIngest.Batch = logSection.Key("INGEST_BATCH").MustInt(cfg.LogIngest.Batch)
+	cfg.LogIngest.BlockMS = logSection.Key("INGEST_BLOCK_MS").MustInt(cfg.LogIngest.BlockMS)
 
 	if ms := file.Section("monitor").Key("SLOW_SQL_MS").MustInt(int(cfg.SlowSQLThreshold.Milliseconds())); ms > 0 {
 		cfg.SlowSQLThreshold = time.Duration(ms) * time.Millisecond
@@ -271,6 +308,15 @@ func (l *Loader) applyEnv(cfg *Config) {
 	}
 	if v := l.env("WAF_LUA_CONFIG"); v != "" {
 		cfg.LuaConfigPath = v
+	}
+	if v := l.env("WAF_LOG_INGEST"); v != "" {
+		cfg.LogIngest.Enabled = parseToggle(v)
+	}
+	if v := l.env("WAF_REDIS_ADDR"); v != "" {
+		cfg.LogIngest.Addr = v
+	}
+	if v := l.env("WAF_REDIS_PASSWORD"); v != "" {
+		cfg.LogIngest.Password = v
 	}
 	if v := l.env("WAF_DB_SHOW_SQL"); v != "" {
 		cfg.Database.ShowSQL = parseToggle(v)
@@ -365,4 +411,12 @@ func splitHostPort(raw string, fallbackPort int) (string, int) {
 		return host, p
 	}
 	return host, fallbackPort
+}
+
+// boolText 把布尔值转换为配置文件的 on/off 文本。
+func boolText(value bool) string {
+	if value {
+		return "on"
+	}
+	return "off"
 }

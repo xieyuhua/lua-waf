@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"wafadmin/internal/config"
+	"wafadmin/internal/ingest"
 	"wafadmin/internal/service"
 	"wafadmin/pkg/response"
 	"wafadmin/pkg/session"
@@ -27,6 +28,7 @@ type Deps struct {
 	Settings  *service.SettingService
 	SysConfig *service.SystemConfigService
 	LuaConfig *service.LuaConfigService
+	Ingest    *ingest.Consumer
 }
 
 // Routes 提供统一的中间件包装器，各 handler 按需使用。
@@ -83,7 +85,7 @@ func (s *Server) register(mux *http.ServeMux) {
 	(&SlowSQLHandler{SlowSQL: s.Deps.SlowSQL, Responder: Responder{Writer: s.Writer}, Writer: s.Writer}).Register(mux, routes)
 	(&AIHandler{AI: s.Deps.AI, Responder: Responder{Writer: s.Writer}, Writer: s.Writer}).Register(mux, routes)
 	(&MapHandler{Map: s.Deps.Map, Responder: Responder{Writer: s.Writer}}).Register(mux, routes)
-	(&SystemHandler{Cfg: s.Cfg, Rules: s.Deps.Rules, Settings: s.Deps.Settings, FrontendVersion: s.frontendVersion(), Responder: Responder{Writer: s.Writer}}).Register(mux, routes)
+	(&SystemHandler{Cfg: s.Cfg, Rules: s.Deps.Rules, Settings: s.Deps.Settings, FrontendVersion: s.frontendVersion(), Ingest: s.Deps.Ingest, Responder: Responder{Writer: s.Writer}}).Register(mux, routes)
 	(&SysConfigHandler{SysConfig: s.Deps.SysConfig, Writer: s.Writer, Responder: Responder{Writer: s.Writer}}).Register(mux, routes)
 	(&LuaConfigHandler{Lua: s.Deps.LuaConfig, Writer: s.Writer, Responder: Responder{Writer: s.Writer}}).Register(mux, routes)
 	(&SyncHandler{Sync: s.Deps.Sync, Sites: s.Deps.Sites, Rules: s.Deps.Rules, Writer: s.Writer}).Register(mux)

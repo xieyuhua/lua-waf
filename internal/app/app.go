@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"wafadmin/internal/config"
+	"wafadmin/internal/ingest"
 	"wafadmin/internal/model"
 	"wafadmin/internal/nginx"
 	"wafadmin/internal/repository"
@@ -22,6 +23,7 @@ import (
 	"wafadmin/pkg/crypto"
 	"wafadmin/pkg/geo"
 	"wafadmin/pkg/ratelimit"
+	"wafadmin/pkg/redis"
 	"wafadmin/pkg/response"
 	"wafadmin/pkg/session"
 	"wafadmin/pkg/sqlwatch"
@@ -39,9 +41,12 @@ type Options struct {
 
 // App 是应用运行实例。
 type App struct {
-	cfg     *config.Config
-	repos   repository.Repositories
-	server  *http.Server
+	cfg      *config.Config
+	repos    repository.Repositories
+	server   *http.Server
+	consumer *ingest.Consumer
+	// cancel 用于停止后台消费协程
+	cancel  context.CancelFunc
 	closers []func() error
 }
 
@@ -97,6 +102,20 @@ func New(opts Options) (*App, error) {
 		},
 	}
 
+	// 日志入库：lua 只写 Redis，本进程消费后批量写 MySQL（默认关闭，按需在 [log] INGEST_ENABLED 开启）
+	consumer := ingest.New(ingest.Options{
+		Redis: redis.Options{
+			Addr:     cfg.LogIngest.Addr,
+			Password: cfg.LogIngest.Password,
+			DB:       cfg.LogIngest.DB,
+		},
+		Source: cfg.LogIngest.ListKey,
+		Batch:  cfg.LogIngest.Batch,
+		Block:  time.Duration(cfg.LogIngest.BlockMS) * time.Millisecond,
+	}, repos.Log)
+	consumer.Logf = func(format string, args ...any) { log.Printf(format, args...) }
+	deps.Ingest = consumer
+
 	// lua-waf config.lua 在线编辑：保存后可用 nginx reload 生效
 	deps.LuaConfig = &service.LuaConfigService{
 		Path:     cfg.LuaConfigPath,
@@ -130,6 +149,13 @@ func New(opts Options) (*App, error) {
 
 // Run 启动 HTTP 服务并阻塞，直到服务退出。
 func (a *App) Run() error {
+	if a.consumer != nil && a.cfg.LogIngest.Enabled {
+		ctx, cancel := context.WithCancel(context.Background())
+		a.cancel = cancel
+		log.Printf("[info] 日志入库消费者已启动：source=%s batch=%d", a.consumer.Opts.Source, a.consumer.Opts.Batch)
+		go a.consumer.Run(ctx)
+	}
+
 	log.Printf("wafadmin %s 启动，运行模式: %s，监听: %s", a.cfg.AppVer, a.cfg.RunMode, a.cfg.Addr())
 	if a.cfg.IsDemo() {
 		log.Println("[info] 演示模式：使用内存仓储与内置样例数据，不会写入 nginx 配置")
@@ -146,6 +172,10 @@ func (a *App) Run() error {
 
 // Shutdown 优雅关闭服务并释放仓储资源。
 func (a *App) Shutdown(ctx context.Context) error {
+	if a.cancel != nil {
+		a.cancel()
+	}
+
 	var firstErr error
 	if err := a.server.Shutdown(ctx); err != nil {
 		firstErr = err

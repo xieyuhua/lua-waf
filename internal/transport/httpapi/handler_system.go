@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"wafadmin/internal/config"
+	"wafadmin/internal/ingest"
 	"wafadmin/internal/service"
 )
 
@@ -14,12 +15,15 @@ type SystemHandler struct {
 	Settings *service.SettingService
 	// FrontendVersion 为内嵌前端构建指纹。
 	FrontendVersion string
+	// Ingest 为 Redis 日志消费者（未启用时为 nil）。
+	Ingest *ingest.Consumer
 	Responder
 }
 
 // Register 注册系统信息路由。
 func (h *SystemHandler) Register(mux *http.ServeMux, routes Routes) {
 	mux.HandleFunc("GET /api/system/info", routes.Private(h.info))
+	mux.HandleFunc("GET /api/system/ingest", routes.Private(h.ingestStats))
 }
 
 // SystemInfo 是系统运行信息。
@@ -54,4 +58,13 @@ func (h *SystemHandler) info(w http.ResponseWriter, r *http.Request) {
 		APIServers:      h.Cfg.APIServers,
 		NginxDryRun:     h.Cfg.IsDemo(),
 	})
+}
+
+// ingestStats 返回 Redis 日志消费者的运行状态与队列深度。
+func (h *SystemHandler) ingestStats(w http.ResponseWriter, r *http.Request) {
+	if h.Ingest == nil {
+		h.Data(w, ingest.Stats{Enabled: false})
+		return
+	}
+	h.Data(w, h.Ingest.Stats())
 }

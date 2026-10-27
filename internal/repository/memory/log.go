@@ -35,6 +35,28 @@ func (r *logRepo) Get(ctx context.Context, id int64) (*model.WafLog, error) {
 	return nil, nil
 }
 
+// BatchCreate 批量写入攻击日志（内存实现，供演示与测试使用）。
+func (r *logRepo) BatchCreate(ctx context.Context, items []model.WafLog) (int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+
+	r.store.mu.Lock()
+	defer r.store.mu.Unlock()
+
+	for _, item := range items {
+		record := item
+		if record.Id == 0 {
+			r.store.logSeq++
+			record.Id = r.store.logSeq
+		} else if record.Id > r.store.logSeq {
+			r.store.logSeq = record.Id
+		}
+		r.store.logs = append(r.store.logs, record)
+	}
+	return int64(len(items)), nil
+}
+
 // List 按筛选条件分页查询日志，返回结果按 ID 倒序（最新在前）。
 func (r *logRepo) List(ctx context.Context, q model.LogQuery) ([]model.WafLog, int64, error) {
 	if err := ctx.Err(); err != nil {
