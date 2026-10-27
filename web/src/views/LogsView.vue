@@ -326,7 +326,14 @@ onMounted(() => {
             <div class="waf-card-title"><span class="bar"></span> AI 研判结果</div>
             <div class="waf-card-extra">{{ aiResultOf(current).result.model || '-' }}</div>
           </div>
-          <div class="waf-markdown" v-html="renderMarkdown(aiResultOf(current).result.content)"></div>
+          <div
+            v-if="String(aiResultOf(current).result.content || '').trim()"
+            class="waf-markdown"
+            v-html="renderMarkdown(aiResultOf(current).result.content)"
+          ></div>
+          <p v-else class="waf-muted" style="font-size: 12.5px; margin: 8px 0 0">
+            这条记录没有正文内容（可能来自旧缓存），请在弹窗里点「忽略缓存重新请求」重新分析。
+          </p>
         </div>
         <el-button type="primary" plain style="margin-top: 16px; width: 100%" @click="analyzeOne(current)">
           <el-icon><MagicStick /></el-icon> 交给 AI 分析这条日志

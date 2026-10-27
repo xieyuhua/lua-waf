@@ -1,0 +1,1 @@
+import{d as s}from"./index-DOiCtroK.js";const e={info:()=>s.get("/system/info"),config:()=>s.get("/system/config"),saveConfig:o=>s.put("/system/config",o),rawConfig:()=>s.get("/system/config/raw"),reloadConfig:()=>s.post("/system/config/reload")};export{e as s};

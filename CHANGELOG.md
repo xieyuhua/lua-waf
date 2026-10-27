@@ -36,6 +36,16 @@
   并新增 `internal/repository/mysql/setting_test.go`（`WAF_TEST_MYSQL_DSN` 存在时连真实库验证连续覆盖）
   与 `internal/service/ai_test.go`（反复保存、掩码保留密钥、默认值裁剪、非法配置校验）。
 
+### 修复
+
+- **AI 研判结果只显示模型/耗时/tokens、正文一片空白**：根因是模型返回的正文字段为空
+  （推理类模型把内容放在 `reasoning_content`，或 `max_tokens` 用尽 `finish_reason=length`），
+  后端此前原样返回并写入缓存，前端只渲染标题行。
+  现在：① 解析响应时若 `content` 为空自动回退 `reasoning_content` / `reasoning` 并标注「以下为思考过程」；
+  ② 正文仍为空返回明确错误「模型返回内容为空（finish_reason=…），请更换模型或调大最大输出 tokens」；
+  ③ 空正文不再写入服务端缓存；④ 前端遇到历史空缓存条目时显示提示 + 引导「忽略缓存重新请求」，
+  并在读取本地缓存时丢弃无正文的旧条目。
+
 ### 新增功能
 
 - **攻击地图支持缩放 + 归属地精确到城市**：`geo.roam` 打开（滚轮 / 双指缩放、拖拽平移，max 8 倍），

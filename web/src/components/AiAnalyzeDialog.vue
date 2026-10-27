@@ -16,6 +16,8 @@ const emit = defineEmits(['update:modelValue'])
 const loading = ref(false)
 const question = ref('')
 const result = ref(null)
+// 是否存在可展示的正文（旧缓存可能是空内容）
+const hasContent = computed(() => Boolean(String(result.value?.content || '').trim()))
 const fromCache = ref(false)
 const resultRef = ref(null)
 
@@ -144,7 +146,16 @@ watch(
           模型 {{ result.model || '-' }} · 耗时 {{ result.elapsed_ms }}ms · tokens {{ result.usage?.total_tokens ?? '-' }}
         </div>
       </div>
-      <div class="waf-markdown" v-html="renderMarkdown(result.content)"></div>
+      <div v-if="hasContent" class="waf-markdown" v-html="renderMarkdown(result.content)"></div>
+      <el-alert
+        v-else
+        type="warning"
+        show-icon
+        :closable="false"
+        title="这条记录没有正文内容"
+        description="可能来自旧版本的缓存（模型只返回了思考过程或空内容）。请点「忽略缓存重新请求」重新分析，或在「AI 设置」中更换模型、调大「最大输出 tokens」。"
+        style="margin-top: 10px"
+      />
     </div>
 
     <template #footer>

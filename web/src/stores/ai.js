@@ -17,9 +17,13 @@ function restore() {
     const now = Date.now()
     const items = {}
     for (const [key, item] of Object.entries(parsed || {})) {
-      if (item && now - (item.at || 0) < AI_RESULT_TTL) items[key] = item
+      const content = String(item?.result?.content || '').trim()
+      // 丢弃过期或没有正文的条目（旧版本可能存了空结果）
+      if (item && content && now - (item.at || 0) < AI_RESULT_TTL) items[key] = item
     }
     state.items = items
+    // 把过滤后的结果写回，清掉过期与空正文的旧条目
+    persist()
   } catch (error) {
     /* 忽略损坏数据 */
   }

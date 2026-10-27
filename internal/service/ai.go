@@ -142,16 +142,22 @@ type AIUsage struct {
 }
 
 // chatMessage 是对话消息。
+//
+// 推理类模型（deepseek-reasoner 等）常把思考过程放在 reasoning_content，
+// 而 content 可能为空，因此需要一并接收。
 type chatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role             string `json:"role"`
+	Content          string `json:"content"`
+	ReasoningContent string `json:"reasoning_content,omitempty"`
+	Reasoning        string `json:"reasoning,omitempty"`
 }
 
 // chatResponse 是大模型返回结构。
 type chatResponse struct {
 	Model   string `json:"model"`
 	Choices []struct {
-		Message chatMessage `json:"message"`
+		Message      chatMessage `json:"message"`
+		FinishReason string      `json:"finish_reason"`
 	} `json:"choices"`
 	Usage AIUsage `json:"usage"`
 	Error *struct {
@@ -320,7 +326,8 @@ func (s *AIService) AnalyzeLogs(ctx context.Context, req AnalyzeLogsRequest) (*A
 		LogCount:  len(logs),
 		Usage:     usage,
 	}
-	if s.Cache != nil {
+	// 只缓存有正文的结果，避免把空内容写进缓存
+	if s.Cache != nil && strings.TrimSpace(result.Content) != "" {
 		s.Cache.Set(cacheKey, *result, req.LogIds, time.Duration(cfg.CacheMinutes)*time.Minute)
 	}
 	return result, nil
@@ -401,7 +408,26 @@ func (s *AIService) chat(ctx context.Context, cfg AIConfig, messages []chatMessa
 	if len(parsed.Choices) == 0 {
 		return "", AIUsage{}, "", ErrInternal.New("模型未返回分析内容")
 	}
-	return strings.TrimSpace(parsed.Choices[0].Message.Content), parsed.Usage, parsed.Model, nil
+
+	choice := parsed.Choices[0]
+	content := strings.TrimSpace(choice.Message.Content)
+	if content == "" {
+		// 推理类模型可能只返回 reasoning_content（content 为空），此时退化为思考过程，
+		// 并在末尾标注，避免前端出现「有 token 却看不到内容」的空白结果。
+		reasoning := strings.TrimSpace(choice.Message.ReasoningContent)
+		if reasoning == "" {
+			reasoning = strings.TrimSpace(choice.Message.Reasoning)
+		}
+		if reasoning != "" {
+			return "（模型未返回正文，以下为思考过程）\n\n" + reasoning, parsed.Usage, parsed.Model, nil
+		}
+		hint := "模型返回内容为空"
+		if choice.FinishReason != "" {
+			hint += "（finish_reason=" + choice.FinishReason + "）"
+		}
+		return "", parsed.Usage, parsed.Model, ErrInternal.New("%s，请更换模型或调大「最大输出 tokens」后重试", hint)
+	}
+	return content, parsed.Usage, parsed.Model, nil
 }
 
 // buildLogPrompt 把日志拼装为分析提示词。
