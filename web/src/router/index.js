@@ -57,31 +57,16 @@ export const routes = [
         meta: { title: '慢 SQL 统计', crumb: '审计分析 / 慢 SQL' }
       },
       {
-        path: 'settings/appearance',
-        name: 'appearance',
-        component: () => import('../views/AppearanceView.vue'),
-        meta: { title: '外观设置', crumb: '系统设置 / 外观设置' }
-      },
-      {
         path: 'settings/system',
         name: 'system-config',
         component: () => import('../views/SystemSettingsView.vue'),
         meta: { title: '系统设置', crumb: '系统设置' }
       },
-      // 兼容旧地址：WAF 配置已并入「系统设置」的选项卡
+      // 兼容旧地址：各设置页已并入「系统设置」的选项卡
       { path: 'settings/lua', redirect: { path: 'settings/system', query: { tab: 'waf' } } },
-      {
-        path: 'settings/ai',
-        name: 'ai-settings',
-        component: () => import('../views/AiSettingsView.vue'),
-        meta: { title: 'AI 设置', crumb: '系统设置 / AI 设置' }
-      },
-      {
-        path: 'settings/account',
-        name: 'account',
-        component: () => import('../views/AccountView.vue'),
-        meta: { title: '账号设置', crumb: '系统设置 / 账号设置' }
-      },
+      { path: 'settings/appearance', redirect: { path: 'settings/system', query: { tab: 'appearance' } } },
+      { path: 'settings/ai', redirect: { path: 'settings/system', query: { tab: 'ai' } } },
+      { path: 'settings/account', redirect: { path: 'settings/system', query: { tab: 'account' } } },
       {
         path: 'forbidden',
         name: 'forbidden',

@@ -2,26 +2,56 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppConfigPanel from '../components/config/AppConfigPanel.vue'
+import AppearancePanel from '../components/config/AppearancePanel.vue'
+import AiConfigPanel from '../components/config/AiConfigPanel.vue'
+import AccountPanel from '../components/config/AccountPanel.vue'
 import LuaConfigPanel from '../components/config/LuaConfigPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
 
-// 运行配置（app.ini）与 WAF 配置（config.lua）合并为一个页面，用选项卡切换；
-// 选项卡状态写入 query，刷新或分享链接都能定位到同一页
-const TABS = ['app', 'waf']
+// 全部系统设置合并为一个页面，用选项卡切换；选项卡状态写入 query，刷新/分享都能定位
+const TABS = {
+  app: {
+    label: '运行配置',
+    hint: '在线修改 conf/app.ini 的运行时参数，保存后立即热更新',
+    component: AppConfigPanel
+  },
+  waf: {
+    label: 'WAF 配置',
+    hint: '在线修改 openresty 侧的 config.lua，保存后可一键 reload 生效',
+    component: LuaConfigPanel
+  },
+  appearance: {
+    label: '外观设置',
+    hint: '设置后台界面的明暗模式与主题色，保存在浏览器本地',
+    component: AppearancePanel
+  },
+  ai: {
+    label: 'AI 设置',
+    hint: '配置大模型接口，用于攻击日志智能研判',
+    component: AiConfigPanel
+  },
+  account: {
+    label: '账号设置',
+    hint: '查看登录信息、修改口令并了解系统运行参数',
+    component: AccountPanel
+  }
+}
+
+const NAMES = Object.keys(TABS)
 const active = ref(normalize(route.query.tab))
 
 function normalize(value) {
   const tab = typeof value === 'string' ? value : ''
-  return TABS.includes(tab) ? tab : 'app'
+  return NAMES.includes(tab) ? tab : 'app'
 }
 
-/** 切换选项卡并同步到地址栏 */
+/** 切换选项卡并同步地址栏 */
 function switchTab(name) {
-  active.value = name
-  if (route.query.tab !== name) {
-    router.replace({ query: { ...route.query, tab: name } })
+  active.value = normalize(name)
+  if (route.query.tab !== active.value) {
+    router.replace({ query: { ...route.query, tab: active.value } })
   }
 }
 
@@ -34,14 +64,9 @@ watch(
   }
 )
 
-const subtitle = computed(() =>
-  active.value === 'waf'
-    ? '在线修改 openresty 侧的 config.lua，保存后可一键 reload 生效'
-    : '在线修改 conf/app.ini 的运行时参数，保存后立即热更新'
-)
+const subtitle = computed(() => TABS[active.value]?.hint || '')
 
 onMounted(() => {
-  // 地址栏没有 tab 参数时补上，便于刷新保持
   if (!route.query.tab) router.replace({ query: { ...route.query, tab: active.value } })
 })
 </script>
@@ -56,11 +81,8 @@ onMounted(() => {
     </div>
 
     <el-tabs :model-value="active" class="config-tabs" @update:model-value="switchTab">
-      <el-tab-pane label="运行配置（app.ini）" name="app">
-        <AppConfigPanel v-if="active === 'app'" />
-      </el-tab-pane>
-      <el-tab-pane label="WAF 配置（config.lua）" name="waf">
-        <LuaConfigPanel v-if="active === 'waf'" />
+      <el-tab-pane v-for="(meta, name) in TABS" :key="name" :label="meta.label" :name="name">
+        <component :is="meta.component" v-if="active === name" />
       </el-tab-pane>
     </el-tabs>
   </div>

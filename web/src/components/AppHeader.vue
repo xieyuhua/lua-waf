@@ -29,7 +29,7 @@ function search() {
 /** 用户菜单 */
 async function handleCommand(command) {
   if (command === 'account') {
-    router.push('/settings/account')
+    router.push('/settings/system?tab=account')
     return
   }
   if (command === 'logout') {

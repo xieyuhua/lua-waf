@@ -1,0 +1,1 @@
+import{d as t}from"./index-CVYlkCEG.js";const i={status:()=>t.get("/ai/config"),save:a=>t.put("/ai/config",a),test:()=>t.post("/ai/test"),analyze:a=>t.post("/ai/analyze",a),result:a=>t.get(`/ai/results/${a}`)};export{i as a};

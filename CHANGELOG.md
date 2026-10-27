@@ -38,6 +38,11 @@
 
 ### 变更
 
+- **系统设置全部合并为一个页面**：`运行配置 / WAF 配置 / 外观设置 / AI 设置 / 账号设置` 五个选项卡
+  集中在「系统设置」（侧边栏因此只保留一个入口），选项卡状态写入 `?tab=app|waf|appearance|ai|account`；
+  `/settings/lua`、`/settings/appearance`、`/settings/ai`、`/settings/account` 与顶栏「账号设置」入口
+  全部重定向到对应选项卡，旧链接不失效；各面板抽出到 `components/config/*Panel.vue`，
+  统一「说明 + 操作按钮」工具栏，移动端选项卡可横向滑动、无横向溢出。
 - **「运行配置」与「WAF 配置」合并为「系统设置」一个页面**：不再在侧边栏占两个菜单项，
   改为页面内选项卡切换（`运行配置（app.ini）` / `WAF 配置（config.lua）`），
   选项卡状态写入地址栏 `?tab=app|waf`，刷新/分享链接可定位；旧地址 `/settings/lua` 自动重定向到

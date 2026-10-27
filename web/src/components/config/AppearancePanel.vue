@@ -1,14 +1,11 @@
 <script setup>
-import ThemePanel from '../components/ThemePanel.vue'
+import ThemePanel from '../ThemePanel.vue'
 </script>
 
 <template>
-  <div class="waf-page">
-    <div class="waf-page-head">
-      <div>
-        <h1 class="waf-page-title"><span class="dot"></span> 外观设置</h1>
-        <p class="waf-page-sub">选择界面模式与主题色，设置保存在浏览器本地，仅影响当前后台界面</p>
-      </div>
+  <div class="config-panel">
+    <div class="panel-toolbar">
+      <p class="panel-hint">选择界面模式与主题色；设置保存在浏览器本地，仅影响当前后台界面</p>
     </div>
 
     <div class="waf-grid waf-grid--2">

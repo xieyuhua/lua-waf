@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { aiApi } from '../api/ai'
+import { aiApi } from '../../api/ai'
 
 const loading = ref(true)
 const saving = ref(false)
@@ -79,13 +79,10 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="waf-page">
-    <div class="waf-page-head">
-      <div>
-        <h1 class="waf-page-title"><span class="dot"></span> AI 设置</h1>
-        <p class="waf-page-sub">配置 OpenAI 兼容接口的大模型，用于攻击日志智能研判</p>
-      </div>
-      <div style="display: flex; gap: 10px">
+  <div class="config-panel">
+    <div class="panel-toolbar">
+      <p class="panel-hint">配置 OpenAI 兼容接口的大模型，用于攻击日志智能研判</p>
+      <div class="panel-actions">
         <el-button :loading="testing" @click="test"><el-icon><Connection /></el-icon> 连通性测试</el-button>
         <el-button type="primary" :loading="saving" @click="save"><el-icon><Check /></el-icon> 保存配置</el-button>
       </div>

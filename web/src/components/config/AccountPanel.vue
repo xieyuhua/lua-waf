@@ -1,10 +1,10 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { authApi } from '../api/auth'
-import { systemApi } from '../api/system'
-import { authStore } from '../stores/auth'
-import { formatTime } from '../utils/format'
+import { authApi } from '../../api/auth'
+import { systemApi } from '../../api/system'
+import { authStore } from '../../stores/auth'
+import { formatTime } from '../../utils/format'
 
 const saving = ref(false)
 const info = ref(null)
@@ -49,12 +49,9 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="waf-page">
-    <div class="waf-page-head">
-      <div>
-        <h1 class="waf-page-title"><span class="dot"></span> 账号设置</h1>
-        <p class="waf-page-sub">查看当前登录信息、修改口令并了解系统运行参数</p>
-      </div>
+  <div class="config-panel">
+    <div class="panel-toolbar">
+      <p class="panel-hint">查看当前登录信息、修改口令并了解系统运行参数</p>
     </div>
 
     <div class="waf-grid waf-grid--2">

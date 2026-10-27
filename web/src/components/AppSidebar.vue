@@ -53,12 +53,8 @@ const groups = [
   },
   {
     name: '系统设置',
-    items: [
-      { label: '系统设置', icon: 'Tools', to: '/settings/system' },
-      { label: '外观设置', icon: 'Brush', to: '/settings/appearance' },
-      { label: 'AI 设置', icon: 'MagicStick', to: '/settings/ai' },
-      { label: '账号设置', icon: 'Setting', to: '/settings/account' }
-    ]
+    // 运行配置 / WAF 配置 / 外观 / AI / 账号 都并入同一个页面，用选项卡切换
+    items: [{ label: '系统设置', icon: 'Tools', to: '/settings/system' }]
   }
 ]
 
