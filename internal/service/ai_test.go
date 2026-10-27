@@ -125,8 +125,8 @@ func TestAIConfigDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("保存失败: %v", err)
 	}
-	if saved.MaxTokens != 8192 {
-		t.Fatalf("max_tokens 未裁剪到 8192: %d", saved.MaxTokens)
+	if saved.MaxTokens != 32768 {
+		t.Fatalf("max_tokens 未裁剪到 32768: %d", saved.MaxTokens)
 	}
 	if saved.TimeoutSeconds != 300 {
 		t.Fatalf("timeout_seconds 未裁剪到 300: %d", saved.TimeoutSeconds)

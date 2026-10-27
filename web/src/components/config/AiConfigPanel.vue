@@ -15,7 +15,7 @@ const form = reactive({
   api_key: '',
   model: '',
   temperature: 0.2,
-  max_tokens: 1024,
+  max_tokens: 4096,
   timeout_seconds: 60,
   system_prompt: '',
   cache_minutes: 10
@@ -35,7 +35,7 @@ async function load() {
       api_key: data.config?.api_key ?? '',
       model: data.config?.model ?? '',
       temperature: data.config?.temperature ?? 0.2,
-      max_tokens: data.config?.max_tokens ?? 1024,
+      max_tokens: data.config?.max_tokens ?? 4096,
       timeout_seconds: data.config?.timeout_seconds ?? 60,
       system_prompt: data.config?.system_prompt ?? '',
       cache_minutes: data.config?.cache_minutes ?? 10
@@ -127,7 +127,11 @@ onMounted(load)
               <el-slider v-model="form.temperature" :min="0" :max="1" :step="0.1" show-input />
             </el-form-item>
             <el-form-item label="最大输出 tokens">
-              <el-input-number v-model="form.max_tokens" :min="128" :max="8192" :step="128" style="width: 100%" />
+              <el-input-number v-model="form.max_tokens" :min="-1" :max="32768" :step="256" style="width: 100%" />
+            <div class="waf-muted" style="font-size: 11.5px; margin-top: 4px; line-height: 1.6">
+              输出上限越大越不容易被截断（默认 4096，最大 32768）；填 <code>-1</code> 表示不限制，由模型自行决定。
+              即使被截断，后台也会自动续写最多 2 轮。
+            </div>
             </el-form-item>
           </div>
 

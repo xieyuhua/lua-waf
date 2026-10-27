@@ -358,7 +358,12 @@ onMounted(() => {
         <div v-if="aiResultOf(current)" class="waf-card" style="margin-top: 16px">
           <div class="waf-card-head">
             <div class="waf-card-title"><span class="bar"></span> AI 优化建议</div>
-            <div class="waf-card-extra">{{ aiResultOf(current).result.model || '-' }}</div>
+            <div class="waf-card-extra">
+              <el-tag v-if="aiResultOf(current).result.truncated" size="small" type="warning" effect="plain" style="margin-right: 8px">
+                输出被截断
+              </el-tag>
+              {{ aiResultOf(current).result.model || '-' }}
+            </div>
           </div>
           <div
             v-if="String(aiResultOf(current).result.content || '').trim()"

@@ -164,12 +164,24 @@ watch(
           <el-tag v-if="fromCache" size="small" type="success" effect="plain" style="margin-right: 8px">
             缓存结果{{ cacheMinutes ? ' · ' + cacheMinutes : '' }}
           </el-tag>
+          <el-tag v-if="result.truncated" size="small" type="warning" effect="plain" style="margin-right: 8px">
+            输出已达上限被截断
+          </el-tag>
           模型 {{ result.model || '-' }} · 耗时 {{ result.elapsed_ms }}ms · tokens {{ result.usage?.total_tokens ?? '-' }}
         </div>
       </div>
+      <el-alert
+        v-if="hasContent && result.truncated"
+        type="warning"
+        show-icon
+        :closable="false"
+        title="内容可能不完整：模型输出达到上限被截断"
+        description="后台已自动续写 2 轮仍到上限。可以在「系统设置 → AI 设置」把「最大输出 tokens」调大（或填 -1 不限制），再点「忽略缓存重新请求」。"
+        style="margin-bottom: 10px"
+      />
       <div v-if="hasContent" class="waf-markdown" v-html="renderMarkdown(result.content)"></div>
       <el-alert
-        v-else
+        v-if="!hasContent"
         type="warning"
         show-icon
         :closable="false"

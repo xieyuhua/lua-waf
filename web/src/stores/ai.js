@@ -107,7 +107,9 @@ export const aiResultStore = {
         elapsed_ms: result.elapsed_ms,
         usage: result.usage,
         cached: result.cached,
-        cached_at: result.cached_at
+        cached_at: result.cached_at,
+        truncated: result.truncated,
+        finish_reason: result.finish_reason
       }
     }
     prune()

@@ -74,7 +74,7 @@ func (s *AIService) AnalyzeSlowSQL(ctx context.Context, req AnalyzeSlowSQLReques
 	}
 
 	start := time.Now()
-	reply, usage, replyModel, err := s.chat(ctx, cfg, []chatMessage{
+	outcome, err := s.chat(ctx, cfg, []chatMessage{
 		{Role: "system", Content: cfg.SystemPrompt},
 		{Role: "user", Content: buildSlowSQLPrompt(items, question)},
 	})
@@ -83,11 +83,13 @@ func (s *AIService) AnalyzeSlowSQL(ctx context.Context, req AnalyzeSlowSQLReques
 	}
 
 	result := &AnalyzeLogsResult{
-		Content:   reply,
-		Model:     replyModel,
-		ElapsedMs: time.Since(start).Milliseconds(),
-		LogCount:  len(items),
-		Usage:     usage,
+		Content:      outcome.Content,
+		Model:        outcome.Model,
+		ElapsedMs:    time.Since(start).Milliseconds(),
+		LogCount:     len(items),
+		Usage:        outcome.Usage,
+		Truncated:    outcome.Truncated,
+		FinishReason: outcome.FinishReason,
 	}
 	if s.Cache != nil && strings.TrimSpace(result.Content) != "" {
 		s.Cache.Set(cacheKey, SceneSlowSQL, *result, req.SlowSQLIds, time.Duration(cfg.CacheMinutes)*time.Minute)
@@ -133,7 +135,7 @@ func buildSlowSQLPrompt(items []model.SlowSQL, question string) string {
 			builder.WriteString(fmt.Sprintf("- 客户端 IP: %s\n", item.ClientIp))
 		}
 		builder.WriteString("- SQL:\n```sql\n")
-		builder.WriteString(truncateText(item.Statement, 2000))
+		builder.WriteString(truncateText(item.Statement, 8000))
 		builder.WriteString("\n```\n\n")
 	}
 

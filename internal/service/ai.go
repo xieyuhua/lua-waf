@@ -23,6 +23,15 @@ const maxAnalyzeLogs = 20
 // 分析结果缓存默认时长（分钟）。
 const defaultAICacheMinutes = 10
 
+// 输出 token 相关：默认 4096（避免长方案被截断），上限 32768，-1 表示不限制。
+const (
+	defaultAIMaxTokens = 4096
+	maxAIMaxTokens     = 32768
+)
+
+// maxChatContinue 是输出被 max_tokens 截断后的自动续写轮数上限。
+const maxChatContinue = 2
+
 // AIConfig 是大模型接入配置（OpenAI 兼容接口）。
 type AIConfig struct {
 	Enabled        bool    `json:"enabled"`
@@ -53,11 +62,15 @@ func (c AIConfig) WithDefaults() AIConfig {
 	if strings.TrimSpace(out.Model) == "" {
 		out.Model = "gpt-4o-mini"
 	}
-	if out.MaxTokens <= 0 {
-		out.MaxTokens = 1024
+	// MaxTokens：0 表示用默认值，-1（或更小的负数）表示不限制（请求里不发送该字段）
+	if out.MaxTokens == 0 {
+		out.MaxTokens = defaultAIMaxTokens
 	}
-	if out.MaxTokens > 8192 {
-		out.MaxTokens = 8192
+	if out.MaxTokens > maxAIMaxTokens {
+		out.MaxTokens = maxAIMaxTokens
+	}
+	if out.MaxTokens < 0 {
+		out.MaxTokens = -1
 	}
 	if out.TimeoutSeconds <= 0 {
 		out.TimeoutSeconds = 60
@@ -132,6 +145,10 @@ type AnalyzeLogsResult struct {
 	Cached bool `json:"cached"`
 	// CachedAt 为缓存生成时间（Cached 为 true 时有值）。
 	CachedAt string `json:"cached_at,omitempty"`
+	// Truncated 表示模型输出达到 max_tokens 被截断（自动续写后仍截断时为 true）。
+	Truncated bool `json:"truncated,omitempty"`
+	// FinishReason 为模型返回的结束原因。
+	FinishReason string `json:"finish_reason,omitempty"`
 }
 
 // AIUsage 是本次调用的 token 用量。
@@ -251,13 +268,14 @@ func (s *AIService) Test(ctx context.Context) (*AnalyzeLogsResult, error) {
 	}
 
 	start := time.Now()
-	reply, usage, model, err := s.chat(ctx, cfg, []chatMessage{
+	outcome, err := s.chat(ctx, cfg, []chatMessage{
 		{Role: "system", Content: "你是连通性测试助手，请只回复 OK。"},
 		{Role: "user", Content: "ping"},
 	})
 	if err != nil {
 		return nil, err
 	}
+	reply, usage, model := outcome.Content, outcome.Usage, outcome.Model
 	return &AnalyzeLogsResult{
 		Content:   reply,
 		Model:     model,
@@ -313,7 +331,7 @@ func (s *AIService) AnalyzeLogs(ctx context.Context, req AnalyzeLogsRequest) (*A
 	}
 
 	start := time.Now()
-	reply, usage, replyModel, err := s.chat(ctx, cfg, []chatMessage{
+	outcome, err := s.chat(ctx, cfg, []chatMessage{
 		{Role: "system", Content: cfg.SystemPrompt},
 		{Role: "user", Content: buildLogPrompt(logs, question)},
 	})
@@ -322,11 +340,13 @@ func (s *AIService) AnalyzeLogs(ctx context.Context, req AnalyzeLogsRequest) (*A
 	}
 
 	result := &AnalyzeLogsResult{
-		Content:   reply,
-		Model:     replyModel,
-		ElapsedMs: time.Since(start).Milliseconds(),
-		LogCount:  len(logs),
-		Usage:     usage,
+		Content:      outcome.Content,
+		Model:        outcome.Model,
+		ElapsedMs:    time.Since(start).Milliseconds(),
+		LogCount:     len(logs),
+		Usage:        outcome.Usage,
+		Truncated:    outcome.Truncated,
+		FinishReason: outcome.FinishReason,
 	}
 	// 只缓存有正文的结果，避免把空内容写进缓存
 	if s.Cache != nil && strings.TrimSpace(result.Content) != "" {
@@ -355,17 +375,92 @@ func (s *AIService) CachedResult(ctx context.Context, logID int64) (*AnalyzeLogs
 }
 
 // chat 执行一次对话补全请求。
-func (s *AIService) chat(ctx context.Context, cfg AIConfig, messages []chatMessage) (string, AIUsage, string, error) {
+// chatOutcome 是一次对话补全的结果（含截断信息）。
+type chatOutcome struct {
+	// Content 为模型正文（自动续写后拼接）。
+	Content string
+	// Usage 为累计 token 用量。
+	Usage AIUsage
+	// Model 为模型名。
+	Model string
+	// FinishReason 为最后一次请求的结束原因。
+	FinishReason string
+	// Truncated 表示仍然被截断（续写后仍 length）。
+	Truncated bool
+}
+
+// chat 执行一次对话补全请求。
+//
+// 当 max_tokens 用尽（finish_reason=length）时会自动续写，最多续写 maxChatContinue 轮，
+// 尽量给用户完整方案；仍被截断则在结果上标记 Truncated，前端给出提示。
+func (s *AIService) chat(ctx context.Context, cfg AIConfig, messages []chatMessage) (*chatOutcome, error) {
+	// 总长度上限，避免异常模型无限续写
+	const maxTotalChars = 64 << 10
+
+	conversation := make([]chatMessage, len(messages))
+	copy(conversation, messages)
+
+	outcome := &chatOutcome{Model: cfg.Model}
+	var builder strings.Builder
+
+	for round := 0; round <= maxChatContinue; round++ {
+		reply, usage, model, finishReason, err := s.requestChat(ctx, cfg, conversation)
+		if err != nil {
+			return nil, err
+		}
+
+		if reply != "" {
+			if builder.Len() > 0 {
+				builder.WriteString("\n\n")
+			}
+			builder.WriteString(reply)
+		}
+		outcome.Usage.PromptTokens += usage.PromptTokens
+		outcome.Usage.CompletionTokens += usage.CompletionTokens
+		outcome.Usage.TotalTokens += usage.TotalTokens
+		outcome.FinishReason = finishReason
+		if strings.TrimSpace(model) != "" {
+			outcome.Model = model
+		}
+
+		// 正常结束或没有正文可续写
+		if !strings.EqualFold(finishReason, "length") || reply == "" {
+			outcome.Truncated = strings.EqualFold(finishReason, "length")
+			break
+		}
+		if builder.Len() >= maxTotalChars {
+			outcome.Truncated = true
+			break
+		}
+
+		// 续写：把已输出的内容作为助手消息附带，再要求继续
+		conversation = append(conversation,
+			chatMessage{Role: "assistant", Content: reply},
+			chatMessage{Role: "user", Content: "请从上次中断处继续输出剩余内容，不要重复已经输出过的部分，也不要重新开始。"},
+		)
+		outcome.Truncated = round == maxChatContinue
+	}
+
+	outcome.Content = strings.TrimSpace(builder.String())
+	return outcome, nil
+}
+
+// requestChat 发起一次请求并解析结果，返回正文、用量、模型名与 finish_reason。
+func (s *AIService) requestChat(ctx context.Context, cfg AIConfig, messages []chatMessage) (string, AIUsage, string, string, error) {
 	body := map[string]any{
 		"model":       cfg.Model,
 		"messages":    messages,
 		"temperature": cfg.Temperature,
-		"max_tokens":  cfg.MaxTokens,
 		"stream":      false,
 	}
+	// max_tokens 为 -1 时不发送该字段，交由模型/服务端决定（避免被硬截断）
+	if cfg.MaxTokens > 0 {
+		body["max_tokens"] = cfg.MaxTokens
+	}
+
 	payload, err := json.Marshal(body)
 	if err != nil {
-		return "", AIUsage{}, "", ErrInternal.Wrap(err, "构造请求失败")
+		return "", AIUsage{}, "", "", ErrInternal.Wrap(err, "构造请求失败")
 	}
 
 	timeout := time.Duration(cfg.TimeoutSeconds) * time.Second
@@ -375,7 +470,7 @@ func (s *AIService) chat(ctx context.Context, cfg AIConfig, messages []chatMessa
 	endpoint := cfg.BaseURL + "/chat/completions"
 	request, err := http.NewRequestWithContext(requestCtx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
-		return "", AIUsage{}, "", ErrInternal.Wrap(err, "构造请求失败")
+		return "", AIUsage{}, "", "", ErrInternal.Wrap(err, "构造请求失败")
 	}
 	request.Header.Set("Content-Type", "application/json")
 	if key := strings.TrimSpace(cfg.APIKey); key != "" {
@@ -388,27 +483,27 @@ func (s *AIService) chat(ctx context.Context, cfg AIConfig, messages []chatMessa
 	}
 	response, err := client.Do(request)
 	if err != nil {
-		return "", AIUsage{}, "", ErrInternal.Wrap(err, "调用大模型接口失败，请检查网络与接口地址")
+		return "", AIUsage{}, "", "", ErrInternal.Wrap(err, "调用大模型接口失败，请检查网络与接口地址")
 	}
 	defer response.Body.Close()
 
-	raw, readErr := io.ReadAll(io.LimitReader(response.Body, 4<<20))
+	raw, readErr := io.ReadAll(io.LimitReader(response.Body, 8<<20))
 	if readErr != nil {
-		return "", AIUsage{}, "", ErrInternal.Wrap(readErr, "读取模型响应失败")
+		return "", AIUsage{}, "", "", ErrInternal.Wrap(readErr, "读取模型响应失败")
 	}
 
 	parsed := new(chatResponse)
 	if err := json.Unmarshal(raw, parsed); err != nil {
-		return "", AIUsage{}, "", ErrInternal.New("模型返回内容无法解析，请检查接口是否为 OpenAI 兼容格式")
+		return "", AIUsage{}, "", "", ErrInternal.New("模型返回内容无法解析，请检查接口是否为 OpenAI 兼容格式")
 	}
 	if parsed.Error != nil && parsed.Error.Message != "" {
-		return "", AIUsage{}, "", ErrInternal.New("模型返回错误: %s", parsed.Error.Message)
+		return "", AIUsage{}, "", "", ErrInternal.New("模型返回错误: %s", parsed.Error.Message)
 	}
 	if response.StatusCode >= 400 {
-		return "", AIUsage{}, "", ErrInternal.New("模型接口返回状态码 %d", response.StatusCode)
+		return "", AIUsage{}, "", "", ErrInternal.New("模型接口返回状态码 %d", response.StatusCode)
 	}
 	if len(parsed.Choices) == 0 {
-		return "", AIUsage{}, "", ErrInternal.New("模型未返回分析内容")
+		return "", AIUsage{}, "", "", ErrInternal.New("模型未返回分析内容")
 	}
 
 	choice := parsed.Choices[0]
@@ -421,15 +516,15 @@ func (s *AIService) chat(ctx context.Context, cfg AIConfig, messages []chatMessa
 			reasoning = strings.TrimSpace(choice.Message.Reasoning)
 		}
 		if reasoning != "" {
-			return "（模型未返回正文，以下为思考过程）\n\n" + reasoning, parsed.Usage, parsed.Model, nil
+			return "（模型未返回正文，以下为思考过程）\n\n" + reasoning, parsed.Usage, parsed.Model, choice.FinishReason, nil
 		}
 		hint := "模型返回内容为空"
 		if choice.FinishReason != "" {
 			hint += "（finish_reason=" + choice.FinishReason + "）"
 		}
-		return "", parsed.Usage, parsed.Model, ErrInternal.New("%s，请更换模型或调大「最大输出 tokens」后重试", hint)
+		return "", parsed.Usage, parsed.Model, choice.FinishReason, ErrInternal.New("%s，请更换模型或调大「最大输出 tokens」后重试", hint)
 	}
-	return content, parsed.Usage, parsed.Model, nil
+	return content, parsed.Usage, parsed.Model, choice.FinishReason, nil
 }
 
 // buildLogPrompt 把日志拼装为分析提示词。
@@ -443,10 +538,10 @@ func buildLogPrompt(logs []model.WafLog, question string) string {
 		builder.WriteString(fmt.Sprintf("- 站点: %s\n", fallback(item.ServerName, "未知")))
 		builder.WriteString(fmt.Sprintf("- 攻击类型: %s\n", fallback(item.AttackType, "未知")))
 		builder.WriteString(fmt.Sprintf("- 命中规则: %s\n", fallback(item.RuleTag, "未知")))
-		builder.WriteString(fmt.Sprintf("- 请求路径: %s\n", truncateText(item.ReqUrl, 300)))
-		builder.WriteString(fmt.Sprintf("- User-Agent: %s\n", truncateText(fallback(item.UserAgent, "无"), 200)))
+		builder.WriteString(fmt.Sprintf("- 请求路径: %s\n", truncateText(item.ReqUrl, 2000)))
+		builder.WriteString(fmt.Sprintf("- User-Agent: %s\n", truncateText(fallback(item.UserAgent, "无"), 600)))
 		if strings.TrimSpace(item.ReqData) != "" {
-			builder.WriteString(fmt.Sprintf("- 请求体: %s\n", truncateText(item.ReqData, 300)))
+			builder.WriteString(fmt.Sprintf("- 请求体: %s\n", truncateText(item.ReqData, 2000)))
 		}
 		builder.WriteString("\n")
 	}
