@@ -154,7 +154,9 @@ watch(
         <el-icon><RefreshRight /></el-icon>
         忽略缓存重新请求
       </el-button>
-      <span class="waf-muted" style="font-size: 12px">分析需先在「系统设置 → AI 设置」中配置模型</span>
+      <span class="waf-muted" style="font-size: 12px">
+        分析可能耗时 1~3 分钟（长日志/长方案更久），请勿关闭弹窗；需先在「系统设置 → AI 设置」中配置模型
+      </span>
     </div>
 
     <div v-if="result" ref="resultRef" style="margin-top: 18px">

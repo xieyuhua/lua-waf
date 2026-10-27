@@ -44,6 +44,11 @@ func (s *AIService) AnalyzeSlowSQL(ctx context.Context, req AnalyzeSlowSQLReques
 		return nil, ErrInvalid.New("单次最多分析 %d 条慢 SQL", maxAnalyzeSlowSQL)
 	}
 
+	// 分析请求提示词与输出都很长，超时至少按 minAnalyzeTimeoutSeconds 执行（不改动用户配置）
+	if cfg.TimeoutSeconds < minAnalyzeTimeoutSeconds {
+		cfg.TimeoutSeconds = minAnalyzeTimeoutSeconds
+	}
+
 	question := strings.TrimSpace(req.Question)
 	if question == "" {
 		question = defaultSlowSQLQuestion

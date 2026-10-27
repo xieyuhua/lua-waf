@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -31,6 +32,13 @@ const (
 
 // maxChatContinue 是输出被 max_tokens 截断后的自动续写轮数上限。
 const maxChatContinue = 2
+
+// 分析类请求（日志研判 / 慢 SQL 优化）的最小超时与重试次数：
+// 长提示词 + 长输出很容易超过 60 秒，用户配置得更小也按该下限执行。
+const (
+	minAnalyzeTimeoutSeconds = 180
+	maxChatRetries           = 1
+)
 
 // AIConfig 是大模型接入配置（OpenAI 兼容接口）。
 type AIConfig struct {
@@ -75,8 +83,8 @@ func (c AIConfig) WithDefaults() AIConfig {
 	if out.TimeoutSeconds <= 0 {
 		out.TimeoutSeconds = 60
 	}
-	if out.TimeoutSeconds > 300 {
-		out.TimeoutSeconds = 300
+	if out.TimeoutSeconds > 900 {
+		out.TimeoutSeconds = 900
 	}
 	if out.Temperature < 0 {
 		out.Temperature = 0
@@ -300,6 +308,11 @@ func (s *AIService) AnalyzeLogs(ctx context.Context, req AnalyzeLogsRequest) (*A
 		return nil, ErrInvalid.New("单次最多分析 %d 条日志", maxAnalyzeLogs)
 	}
 
+	// 分析请求提示词与输出都很长，超时至少按 minAnalyzeTimeoutSeconds 执行（不改动用户配置）
+	if cfg.TimeoutSeconds < minAnalyzeTimeoutSeconds {
+		cfg.TimeoutSeconds = minAnalyzeTimeoutSeconds
+	}
+
 	question := strings.TrimSpace(req.Question)
 	if question == "" {
 		question = "请研判这些攻击日志是否为真实攻击，并给出处置建议。"
@@ -482,8 +495,24 @@ func (s *AIService) requestChat(ctx context.Context, cfg AIConfig, messages []ch
 		client = &http.Client{}
 	}
 	response, err := client.Do(request)
+	// 连接被对端重置 / EOF 等瞬时错误重试一次（超时与取消不重试）
+	for attempt := 0; err != nil && attempt < maxChatRetries && isRetryableTransportError(err); attempt++ {
+		select {
+		case <-requestCtx.Done():
+			// 上下文已结束，不再重试
+			attempt = maxChatRetries
+			continue
+		case <-time.After(300 * time.Millisecond):
+		}
+		newRequest, buildErr := http.NewRequestWithContext(requestCtx, http.MethodPost, endpoint, bytes.NewReader(payload))
+		if buildErr != nil {
+			break
+		}
+		newRequest.Header = request.Header.Clone()
+		response, err = client.Do(newRequest)
+	}
 	if err != nil {
-		return "", AIUsage{}, "", "", ErrInternal.Wrap(err, "调用大模型接口失败，请检查网络与接口地址")
+		return "", AIUsage{}, "", "", ErrInternal.Wrap(err, "调用大模型接口失败：%s", describeTransportError(err, endpoint, timeout))
 	}
 	defer response.Body.Close()
 
@@ -564,4 +593,52 @@ func truncateText(value string, limit int) string {
 		return value
 	}
 	return value[:limit] + "..."
+}
+
+// describeTransportError 把传输层错误翻译成可操作的提示，并附带原始错误信息。
+func describeTransportError(err error, endpoint string, timeout time.Duration) string {
+	raw := err.Error()
+	lower := strings.ToLower(raw)
+
+	hint := ""
+	switch {
+	case errors.Is(err, context.DeadlineExceeded) || strings.Contains(lower, "context deadline exceeded"):
+		hint = fmt.Sprintf("请求超时（%s 内模型未返回），可在「AI 设置」调大「请求超时」，或改用更快的模型", timeout)
+	case errors.Is(err, context.Canceled):
+		hint = "请求已被取消（页面关闭或服务重启）"
+	case strings.Contains(lower, "connection refused"):
+		hint = "连接被拒绝：模型服务未启动或端口不对"
+	case strings.Contains(lower, "no such host") || strings.Contains(lower, "server misbehaving"):
+		hint = "域名解析失败：请检查接口地址"
+	case strings.Contains(lower, "i/o timeout") || strings.Contains(lower, "dial tcp") && strings.Contains(lower, "timeout"):
+		hint = "连接超时：网络不可达或被防火墙拦截"
+	case strings.Contains(lower, "eof") || strings.Contains(lower, "reset by peer") || strings.Contains(lower, "broken pipe"):
+		hint = "连接被对端中断：模型服务可能过载或主动断开"
+	case strings.Contains(lower, "x509") || strings.Contains(lower, "certificate"):
+		hint = "TLS 证书校验失败：可改用 http 内网地址，或为接口配置受信任证书"
+	case strings.Contains(lower, "unsupported protocol scheme"):
+		hint = "接口地址缺少 http:// 或 https:// 前缀"
+	case strings.Contains(lower, "too many redirects"):
+		hint = "接口发生多次重定向：请确认地址是否指向 /v1 接口"
+	default:
+		hint = "网络请求失败"
+	}
+	return fmt.Sprintf("%s（%s；原始错误：%s）", hint, endpoint, raw)
+}
+
+// isRetryableTransportError 判断是否为可重试的瞬时传输错误。
+func isRetryableTransportError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return false
+	}
+	lower := strings.ToLower(err.Error())
+	for _, keyword := range []string{"eof", "reset by peer", "broken pipe", "connection reset", "temporary failure"} {
+		if strings.Contains(lower, keyword) {
+			return true
+		}
+	}
+	return false
 }

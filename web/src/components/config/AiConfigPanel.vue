@@ -130,14 +130,19 @@ onMounted(load)
               <el-input-number v-model="form.max_tokens" :min="-1" :max="32768" :step="256" style="width: 100%" />
             <div class="waf-muted" style="font-size: 11.5px; margin-top: 4px; line-height: 1.6">
               输出上限越大越不容易被截断（默认 4096，最大 32768）；填 <code>-1</code> 表示不限制，由模型自行决定。
-              即使被截断，后台也会自动续写最多 2 轮。
+              即使被截断，后台也会自动续写最多 2 轮。注意：<b>-1 时输出可能很长</b>，容易触发请求超时，
+              实践中建议 4096~8192。
             </div>
             </el-form-item>
           </div>
 
           <div class="waf-inline-grid">
             <el-form-item label="请求超时（秒）">
-              <el-input-number v-model="form.timeout_seconds" :min="10" :max="300" :step="10" style="width: 100%" />
+              <el-input-number v-model="form.timeout_seconds" :min="10" :max="900" :step="10" style="width: 100%" />
+            <div class="waf-muted" style="font-size: 11.5px; margin-top: 4px; line-height: 1.6">
+              攻击日志与慢 SQL 的分析请求至少按 <b>180 秒</b> 执行（长提示词 + 长输出），
+              这里可继续调大；若报「请求超时」优先加大该项。
+            </div>
             </el-form-item>
             <el-form-item label="结果缓存（分钟）">
               <el-input-number v-model="form.cache_minutes" :min="1" :max="120" :step="1" style="width: 100%" />
