@@ -204,19 +204,19 @@ func TestAnalyzeCacheKeyStable(t *testing.T) {
 	cache := &service.AnalyzeCache{}
 	cfg := service.AIConfig{BaseURL: "https://api.example.com/v1", Model: "gpt-4o", SystemPrompt: "prompt"}
 
-	a := cache.Key(cfg, []int64{1, 2, 3}, "问题")
-	b := cache.Key(cfg, []int64{3, 2, 1}, " 问题 ")
+	a := cache.Key(cfg, service.SceneLog, []int64{1, 2, 3}, "问题")
+	b := cache.Key(cfg, service.SceneLog, []int64{3, 2, 1}, " 问题 ")
 	if a != b {
 		t.Fatal("日志顺序与追问首尾空格不应影响缓存键")
 	}
 
-	other := cache.Key(cfg, []int64{1, 2}, "问题")
+	other := cache.Key(cfg, service.SceneLog, []int64{1, 2}, "问题")
 	if a == other {
 		t.Fatal("日志集合不同应产生不同缓存键")
 	}
 
 	cfg.Model = "gpt-4o-mini"
-	if a == cache.Key(cfg, []int64{1, 2, 3}, "问题") {
+	if a == cache.Key(cfg, service.SceneLog, []int64{1, 2, 3}, "问题") {
 		t.Fatal("模型不同应产生不同缓存键")
 	}
 }

@@ -380,6 +380,20 @@
 
 缓存有效期内无记录时返回 `1004`（README 提示「请重新分析」）。
 
+### POST /api/ai/slow-sql/analyze
+
+慢 SQL 优化建议（与日志分析同一套模型配置与缓存，缓存按场景隔离）：
+
+```json
+{ "slow_sql_ids": [7, 12], "question": "这张表要不要加联合索引？", "refresh": false }
+```
+
+返回结构与 `POST /api/ai/analyze` 相同（`content` 为 Markdown，`log_count` 表示本次分析的记录条数）。
+
+### GET /api/ai/slow-sql/results/{id}
+
+返回某条慢 SQL 在服务端缓存中的优化建议（多端查看），无缓存返回 `1004`。
+
 ### GET /api/lua/config
 
 返回 lua-waf `config.lua` 的可编辑项（按分组，密钥脱敏）。`unknown` 为未纳入表单的键（如多行 `config_output_html`）：
@@ -398,6 +412,20 @@
 
 只替换对应行（保留注释、顺序、引号风格），数字保持裸值，写前备份 `config.lua.bak` 再原子替换；
 取值非法（开关非 on/off、数字越界、下拉不在选项内、限速格式错误、未知键）返回 `1001`，且不会改动文件。
+
+### POST /api/ai/slow-sql/analyze
+
+慢 SQL 优化建议（与日志分析同一套模型配置与缓存，缓存按场景隔离）：
+
+```json
+{ "slow_sql_ids": [7, 12], "question": "这张表要不要加联合索引？", "refresh": false }
+```
+
+返回结构与 `POST /api/ai/analyze` 相同（`content` 为 Markdown，`log_count` 表示本次分析的记录条数）。
+
+### GET /api/ai/slow-sql/results/{id}
+
+返回某条慢 SQL 在服务端缓存中的优化建议（多端查看），无缓存返回 `1004`。
 
 ### GET /api/lua/config/raw
 

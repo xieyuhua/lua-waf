@@ -22,6 +22,8 @@ func (h *AIHandler) Register(mux *http.ServeMux, routes Routes) {
 	mux.HandleFunc("POST /api/ai/test", routes.Private(h.test))
 	mux.HandleFunc("POST /api/ai/analyze", routes.Private(h.analyze))
 	mux.HandleFunc("GET /api/ai/results/{logId}", routes.Private(h.cachedResult))
+	mux.HandleFunc("POST /api/ai/slow-sql/analyze", routes.Private(h.analyzeSlowSQL))
+	mux.HandleFunc("GET /api/ai/slow-sql/results/{id}", routes.Private(h.cachedSlowSQLResult))
 }
 
 // config 返回 AI 配置（密钥脱敏）。
@@ -83,6 +85,38 @@ func (h *AIHandler) cachedResult(w http.ResponseWriter, r *http.Request) {
 	}
 
 	result, err := h.AI.CachedResult(r.Context(), logID)
+	if err != nil {
+		h.Error(w, err)
+		return
+	}
+	h.Data(w, result)
+}
+
+// analyzeSlowSQL 让模型分析慢 SQL 并给出优化方案。
+func (h *AIHandler) analyzeSlowSQL(w http.ResponseWriter, r *http.Request) {
+	payload := service.AnalyzeSlowSQLRequest{}
+	if err := h.Writer.Bind(r, &payload); err != nil {
+		h.BindError(w)
+		return
+	}
+
+	result, err := h.AI.AnalyzeSlowSQL(r.Context(), payload)
+	if err != nil {
+		h.Error(w, err)
+		return
+	}
+	h.Data(w, result)
+}
+
+// cachedSlowSQLResult 返回某条慢 SQL 在服务端缓存中的分析结果（供多端查看）。
+func (h *AIHandler) cachedSlowSQLResult(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id <= 0 {
+		h.Error(w, service.ErrInvalid.New("慢 SQL ID 不合法"))
+		return
+	}
+
+	result, err := h.AI.CachedSlowSQLResult(r.Context(), id)
 	if err != nil {
 		h.Error(w, err)
 		return

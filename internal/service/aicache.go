@@ -13,6 +13,14 @@ import (
 // 缓存条目上限，超过时清理过期项、仍超限则丢弃最早写入的条目。
 const analyzeCacheLimit = 256
 
+// 分析场景：同一缓存同时服务「攻击日志」与「慢 SQL」两类对象。
+const (
+	// SceneLog 表示攻击日志分析。
+	SceneLog = "log"
+	// SceneSlowSQL 表示慢 SQL 分析。
+	SceneSlowSQL = "slow_sql"
+)
+
 // AnalyzeCache 是 AI 分析结果的进程内缓存。
 //
 // 相同参数（模型 + 系统提示词 + 日志集合 + 追加提问）在有效期内直接复用结果，
@@ -28,6 +36,7 @@ type AnalyzeCache struct {
 // analyzeCacheEntry 是一条缓存记录。
 type analyzeCacheEntry struct {
 	result    AnalyzeLogsResult
+	scene     string
 	logIds    []int64
 	storedAt  time.Time
 	expiresAt time.Time
@@ -41,15 +50,15 @@ func (c *AnalyzeCache) now() time.Time {
 	return time.Now()
 }
 
-// Key 生成缓存键：模型、系统提示词、日志 ID 集合、追问任一变化都视为不同请求。
-func (c *AnalyzeCache) Key(cfg AIConfig, logIDs []int64, question string) string {
-	ids := make([]int64, len(logIDs))
-	copy(ids, logIDs)
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+// Key 生成缓存键：场景、模型、系统提示词、对象 ID 集合、追问任一变化都视为不同请求。
+func (c *AnalyzeCache) Key(cfg AIConfig, scene string, ids []int64, question string) string {
+	sorted := make([]int64, len(ids))
+	copy(sorted, ids)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
 
-	parts := make([]string, 0, len(ids)+3)
-	parts = append(parts, cfg.BaseURL, cfg.Model, cfg.SystemPrompt)
-	for _, id := range ids {
+	parts := make([]string, 0, len(sorted)+4)
+	parts = append(parts, scene, cfg.BaseURL, cfg.Model, cfg.SystemPrompt)
+	for _, id := range sorted {
 		parts = append(parts, strconv.FormatInt(id, 10))
 	}
 	parts = append(parts, strings.TrimSpace(question))
@@ -79,7 +88,7 @@ func (c *AnalyzeCache) Get(key string) (AnalyzeLogsResult, time.Time, bool) {
 }
 
 // Set 写入缓存；ttl <= 0 表示不缓存。
-func (c *AnalyzeCache) Set(key string, result AnalyzeLogsResult, logIds []int64, ttl time.Duration) {
+func (c *AnalyzeCache) Set(key, scene string, result AnalyzeLogsResult, ids []int64, ttl time.Duration) {
 	if key == "" || ttl <= 0 {
 		return
 	}
@@ -95,17 +104,17 @@ func (c *AnalyzeCache) Set(key string, result AnalyzeLogsResult, logIds []int64,
 	result.Cached = false
 	result.CachedAt = ""
 
-	ids := make([]int64, len(logIds))
-	copy(ids, logIds)
+	copied := make([]int64, len(ids))
+	copy(copied, ids)
 
 	now := c.now()
-	c.entries[key] = analyzeCacheEntry{result: result, logIds: ids, storedAt: now, expiresAt: now.Add(ttl)}
+	c.entries[key] = analyzeCacheEntry{result: result, scene: scene, logIds: copied, storedAt: now, expiresAt: now.Add(ttl)}
 	c.evictLocked(now)
 }
 
 // FindByLog 按单条日志查找最近的缓存结果（供其他设备/其他会话查看）。
-func (c *AnalyzeCache) FindByLog(logID int64) (AnalyzeLogsResult, time.Time, bool) {
-	if logID <= 0 {
+func (c *AnalyzeCache) FindByObject(scene string, id int64) (AnalyzeLogsResult, time.Time, bool) {
+	if id <= 0 {
 		return AnalyzeLogsResult{}, time.Time{}, false
 	}
 
@@ -123,9 +132,12 @@ func (c *AnalyzeCache) FindByLog(logID int64) (AnalyzeLogsResult, time.Time, boo
 			delete(c.entries, key)
 			continue
 		}
+		if entry.scene != scene {
+			continue
+		}
 		contains := false
-		for _, id := range entry.logIds {
-			if id == logID {
+		for _, item := range entry.logIds {
+			if item == id {
 				contains = true
 				break
 			}

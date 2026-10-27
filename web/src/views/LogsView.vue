@@ -6,7 +6,7 @@ import { logApi } from '../api/log'
 import { ruleApi } from '../api/rule'
 import { aiApi } from '../api/ai'
 import { ruleStore } from '../stores/rules'
-import { aiResultStore } from '../stores/ai'
+import { AI_SCENE_LOG, aiResultStore } from '../stores/ai'
 import { renderMarkdown } from '../utils/markdown'
 import { toBackendTime } from '../utils/format'
 import AiAnalyzeDialog from '../components/AiAnalyzeDialog.vue'
@@ -102,7 +102,7 @@ async function openDetail(row) {
 
   try {
     const data = await aiApi.result(row.id)
-    if (data?.content) aiResultStore.save([row.id], '', data)
+    if (data?.content) aiResultStore.save(AI_SCENE_LOG, [row.id], '', data)
   } catch (error) {
     /* 没有服务端缓存时忽略，属正常情况 */
   }
@@ -110,7 +110,7 @@ async function openDetail(row) {
 
 /** 单条日志已缓存的 AI 结果 */
 function aiResultOf(row) {
-  return row ? aiResultStore.find(row.id) : null
+  return row ? aiResultStore.find(AI_SCENE_LOG, row.id) : null
 }
 
 /** 打开 AI 分析（单条），有缓存结果时直接展示 */

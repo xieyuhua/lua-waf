@@ -604,6 +604,26 @@ html.dark .el-button:not(.el-button--primary):not(.el-button--danger):not(.is-te
   color: var(--waf-text);
 }
 
+.waf-md-pre {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--waf-border);
+  background: var(--waf-surface-2);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.waf-md-pre code {
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  line-height: 1.65;
+  white-space: pre;
+  word-break: normal;
+}
+
 .waf-markdown hr {
   border: none;
   border-top: 1px dashed var(--waf-border);

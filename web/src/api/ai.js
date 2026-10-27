@@ -11,5 +11,9 @@ export const aiApi = {
   /** 分析指定日志 */
   analyze: (payload) => api.post('/ai/analyze', payload),
   /** 查询某条日志在服务端缓存的研判结果（跨设备查看） */
-  result: (logId) => api.get(`/ai/results/${logId}`)
+  result: (logId) => api.get(`/ai/results/${logId}`),
+  /** 慢 SQL 优化分析 */
+  analyzeSlowSQL: (payload) => api.post('/ai/slow-sql/analyze', payload),
+  /** 查询某条慢 SQL 在服务端缓存的分析结果 */
+  slowSQLResult: (id) => api.get(`/ai/slow-sql/results/${id}`)
 }

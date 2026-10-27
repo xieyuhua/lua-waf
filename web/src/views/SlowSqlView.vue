@@ -2,6 +2,10 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { slowSqlApi } from '../api/slowsql'
+import { aiApi } from '../api/ai'
+import { AI_SCENE_SLOW_SQL, aiResultStore } from '../stores/ai'
+import { renderMarkdown } from '../utils/markdown'
+import AiAnalyzeDialog from '../components/AiAnalyzeDialog.vue'
 import { compactStatement, formatDuration, formatNumber, formatTime, toBackendTime } from '../utils/format'
 import StatCard from '../components/StatCard.vue'
 import { viewport } from '../utils/responsive'
@@ -34,6 +38,39 @@ const activePreset = ref(3)
 
 const detailVisible = ref(false)
 const current = ref(null)
+
+// AI 优化建议相关
+const selection = ref([])
+const aiVisible = ref(false)
+const aiInitial = ref(null)
+
+/** 某条慢 SQL 是否已有分析结果（本地缓存） */
+function aiResultOf(row) {
+  if (!row) return null
+  return aiResultStore.find(AI_SCENE_SLOW_SQL, row.id)
+}
+
+/** 打开 AI 分析（单条）：有缓存结果时直接展示 */
+function analyzeOne(row) {
+  selection.value = [row]
+  aiInitial.value = aiResultOf(row)
+  aiVisible.value = true
+}
+
+/** 打开 AI 分析（勾选的多条） */
+function analyzeSelected() {
+  if (!selection.value.length) {
+    ElMessage.warning('请先勾选要分析的慢 SQL')
+    return
+  }
+  aiInitial.value = null
+  aiVisible.value = true
+}
+
+/** 表格勾选变化 */
+function onSelectionChange(rows) {
+  selection.value = rows
+}
 
 /** 应用预设时间范围 */
 function applyPreset(preset, index) {
@@ -120,10 +157,18 @@ async function purge() {
   }
 }
 
-/** 打开详情 */
-function openDetail(row) {
+/** 打开详情；本地无分析结果时尝试取服务端缓存（多端可见） */
+async function openDetail(row) {
   current.value = row
   detailVisible.value = true
+  if (!row || aiResultOf(row)) return
+
+  try {
+    const data = await aiApi.slowSQLResult(row.id)
+    if (data?.content) aiResultStore.save(AI_SCENE_SLOW_SQL, [row.id], '', data)
+  } catch (error) {
+    /* 没有服务端缓存属正常情况 */
+  }
 }
 
 const statCards = computed(() => [
@@ -239,13 +284,17 @@ onMounted(() => {
         <div class="waf-card-title"><span class="bar"></span> 慢 SQL 记录</div>
         <div style="display: flex; gap: 8px; align-items: center">
           <el-tag size="small" type="info">共 {{ formatNumber(total) }} 条</el-tag>
+          <el-button size="small" type="primary" plain :disabled="!selection.length" @click="analyzeSelected">
+            <el-icon><MagicStick /></el-icon> AI 优化建议（{{ selection.length }}）
+          </el-button>
           <el-button size="small" text @click="toggleSort">
             <el-icon><Sort /></el-icon> 按耗时{{ filters.order === 'desc' ? '降序' : '升序' }}
           </el-button>
         </div>
       </div>
 
-      <el-table v-loading="loading" :data="rows" stripe>
+      <el-table v-loading="loading" :data="rows" stripe @selection-change="onSelectionChange">
+        <el-table-column type="selection" width="42" :selectable="() => true" />
         <el-table-column label="记录时间" width="170">
           <template #default="{ row }">{{ formatTime(row.occurred_at) }}</template>
         </el-table-column>
@@ -269,9 +318,10 @@ onMounted(() => {
             <span class="waf-mono">{{ compactStatement(row.statement, 110) }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" :width="viewport.isMobile.value ? 84 : 100" align="right" fixed="right">
+        <el-table-column label="操作" :width="viewport.isMobile.value ? 110 : 150" align="right" fixed="right">
           <template #default="{ row }">
             <el-button text type="primary" @click="openDetail(row)">详情</el-button>
+            <el-button text type="primary" @click="analyzeOne(row)">{{ aiResultOf(row) ? 'AI建议' : 'AI' }}</el-button>
           </template>
         </el-table-column>
         <template #empty><div class="waf-empty">当前时间范围内暂无慢 SQL 记录</div></template>
@@ -303,8 +353,29 @@ onMounted(() => {
           <el-descriptions-item label="Trace">{{ current.trace_id || '-' }}</el-descriptions-item>
         </el-descriptions>
         <div class="waf-code" style="margin-top: 16px">{{ current.statement }}</div>
+
+        <!-- AI 优化建议（本地缓存 10 分钟；手机端打开详情会自动取服务端结果） -->
+        <div v-if="aiResultOf(current)" class="waf-card" style="margin-top: 16px">
+          <div class="waf-card-head">
+            <div class="waf-card-title"><span class="bar"></span> AI 优化建议</div>
+            <div class="waf-card-extra">{{ aiResultOf(current).result.model || '-' }}</div>
+          </div>
+          <div
+            v-if="String(aiResultOf(current).result.content || '').trim()"
+            class="waf-markdown"
+            v-html="renderMarkdown(aiResultOf(current).result.content)"
+          ></div>
+          <p v-else class="waf-muted" style="font-size: 12.5px; margin: 8px 0 0">
+            这条记录没有正文内容（可能来自旧缓存），请在弹窗里点「忽略缓存重新请求」重新分析。
+          </p>
+        </div>
+        <el-button v-else type="primary" plain style="margin-top: 16px" @click="analyzeOne(current)">
+          <el-icon><MagicStick /></el-icon> 让 AI 分析这条慢 SQL
+        </el-button>
       </template>
     </el-drawer>
+
+    <AiAnalyzeDialog v-model="aiVisible" :logs="selection" scene="slow_sql" :initial="aiInitial" />
   </div>
 </template>
 

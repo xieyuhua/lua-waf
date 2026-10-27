@@ -170,6 +170,8 @@ type chatResponse struct {
 type AIService struct {
 	Settings *SettingService
 	Logs     repository.LogRepository
+	// SlowSQLs 用于慢 SQL 分析，可为空（此时慢 SQL 分析不可用）。
+	SlowSQLs repository.SlowSQLRepository
 	// Client 复用连接池；超时由配置中的 timeout_seconds 控制。
 	Client *http.Client
 	// Cache 为分析结果缓存，为 nil 时不做缓存。
@@ -288,7 +290,7 @@ func (s *AIService) AnalyzeLogs(ctx context.Context, req AnalyzeLogsRequest) (*A
 	// 缓存命中直接返回（相同模型/提示词/日志/追问，且未强制刷新）
 	cacheKey := ""
 	if s.Cache != nil && !req.Refresh {
-		cacheKey = s.Cache.Key(cfg, req.LogIds, question)
+		cacheKey = s.Cache.Key(cfg, SceneLog, req.LogIds, question)
 		if cached, storedAt, ok := s.Cache.Get(cacheKey); ok {
 			cached.Cached = true
 			cached.CachedAt = storedAt.Format("2006-01-02 15:04:05")
@@ -328,7 +330,7 @@ func (s *AIService) AnalyzeLogs(ctx context.Context, req AnalyzeLogsRequest) (*A
 	}
 	// 只缓存有正文的结果，避免把空内容写进缓存
 	if s.Cache != nil && strings.TrimSpace(result.Content) != "" {
-		s.Cache.Set(cacheKey, *result, req.LogIds, time.Duration(cfg.CacheMinutes)*time.Minute)
+		s.Cache.Set(cacheKey, SceneLog, *result, req.LogIds, time.Duration(cfg.CacheMinutes)*time.Minute)
 	}
 	return result, nil
 }
@@ -342,7 +344,7 @@ func (s *AIService) CachedResult(ctx context.Context, logID int64) (*AnalyzeLogs
 		return nil, ErrNotFound.New("暂无研判结果")
 	}
 
-	result, storedAt, ok := s.Cache.FindByLog(logID)
+	result, storedAt, ok := s.Cache.FindByObject(SceneLog, logID)
 	if !ok {
 		return nil, ErrNotFound.New("该日志暂无研判结果（可能已超过缓存有效期，请重新分析）")
 	}

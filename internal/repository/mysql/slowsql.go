@@ -19,6 +19,23 @@ type slowSQLRepo struct {
 }
 
 // List 按时间范围与条件分页查询慢 SQL。
+// Get 按主键查询单条慢 SQL 记录。
+func (r *slowSQLRepo) Get(ctx context.Context, id int64) (*model.SlowSQL, error) {
+	defer r.observer.Trace(ctx, "slow_sql.get", "SELECT * FROM slow_sql WHERE id = ?")()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	item := new(model.SlowSQL)
+	has, err := r.engine.Id(id).Get(item)
+	if err != nil {
+		return nil, err
+	}
+	if !has {
+		return nil, nil
+	}
+	return item, nil
+}
 func (r *slowSQLRepo) List(ctx context.Context, q model.SlowSQLQuery) ([]model.SlowSQL, int64, error) {
 	defer r.observer.Trace(ctx, "slow_sql.list", "SELECT * FROM slow_sql WHERE occurred_at BETWEEN ? AND ? ORDER BY occurred_at DESC LIMIT ? OFFSET ?")()
 	if err := ctx.Err(); err != nil {

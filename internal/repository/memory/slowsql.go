@@ -15,6 +15,23 @@ type slowSQLRepo struct {
 }
 
 // List 按时间范围与条件分页查询慢 SQL，默认按发生时间倒序。
+// Get 按主键查询单条慢 SQL 记录，不存在时返回 nil。
+func (r *slowSQLRepo) Get(ctx context.Context, id int64) (*model.SlowSQL, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	r.store.mu.RLock()
+	defer r.store.mu.RUnlock()
+
+	for _, item := range r.store.slows {
+		if item.Id == id {
+			found := item
+			return &found, nil
+		}
+	}
+	return nil, nil
+}
 func (r *slowSQLRepo) List(ctx context.Context, q model.SlowSQLQuery) ([]model.SlowSQL, int64, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, 0, err

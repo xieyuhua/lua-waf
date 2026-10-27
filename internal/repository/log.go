@@ -35,6 +35,8 @@ type LogRepository interface {
 
 // SlowSQLRepository 定义慢 SQL 记录的持久化与统计契约。
 type SlowSQLRepository interface {
+	// Get 按主键查询单条慢 SQL 记录，不存在时返回 nil。
+	Get(ctx context.Context, id int64) (*model.SlowSQL, error)
 	// List 按时间范围与条件分页查询慢 SQL。
 	List(ctx context.Context, q model.SlowSQLQuery) ([]model.SlowSQL, int64, error)
 	// Create 写入一条慢 SQL 记录。

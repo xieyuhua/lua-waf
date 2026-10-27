@@ -3,6 +3,9 @@ import { reactive } from 'vue'
 // AI 分析结果在浏览器侧的缓存：与「AI 设置」中的缓存时长（默认 10 分钟）保持一致，
 // 用于刷新页面后仍能看到刚才的研判结论，避免重复消耗 token。
 const STORAGE_KEY = 'wafadmin.aiResults'
+// 场景：攻击日志 / 慢 SQL，缓存键与查询都按场景隔离
+export const AI_SCENE_LOG = 'log'
+export const AI_SCENE_SLOW_SQL = 'slow_sql'
 export const AI_RESULT_TTL = 10 * 60 * 1000
 
 const state = reactive({ items: {} })
@@ -18,8 +21,8 @@ function restore() {
     const items = {}
     for (const [key, item] of Object.entries(parsed || {})) {
       const content = String(item?.result?.content || '').trim()
-      // 丢弃过期或没有正文的条目（旧版本可能存了空结果）
-      if (item && content && now - (item.at || 0) < AI_RESULT_TTL) items[key] = item
+      // 丢弃过期、没有正文或缺少场景标识的条目（旧版本可能存了空结果）
+      if (item && item.scene && content && now - (item.at || 0) < AI_RESULT_TTL) items[key] = item
     }
     state.items = items
     // 把过滤后的结果写回，清掉过期与空正文的旧条目
@@ -47,13 +50,13 @@ function prune() {
   }
 }
 
-/** 生成缓存键：日志 ID 集合 + 追问 */
-export function resultKey(logIds, question) {
-  const ids = [...(logIds || [])]
+/** 生成缓存键：场景 + 对象 ID 集合 + 追问 */
+export function resultKey(scene, ids, question) {
+  const list = [...(ids || [])]
     .map((id) => Number(id))
     .sort((a, b) => a - b)
     .join(',')
-  return `${ids}|${String(question || '').trim()}`
+  return `${scene}|${list}|${String(question || '').trim()}`
 }
 
 restore()
@@ -61,34 +64,41 @@ restore()
 export const aiResultStore = {
   state,
 
-  /** 按日志集合 + 追问取缓存结果 */
-  get(logIds, question) {
+  /** 按「场景 + ID 集合 + 追问」取缓存结果 */
+  get(scene, ids, question) {
     prune()
-    const item = state.items[resultKey(logIds, question)]
-    return item ? item : null
+    const item = state.items[resultKey(scene, ids, question)]
+    return item && item.scene === scene ? item : null
   },
 
-  /** 某条日志是否已有分析结果 */
-  has(logId) {
-    return Boolean(this.find(logId))
+  /** 指定场景下某条记录是否已有分析结果 */
+  has(scene, id) {
+    return Boolean(this.find(scene, id))
   },
 
-  /** 找到包含指定日志的最早一条结果 */
-  find(logId) {
+  /** 找到包含指定记录的最早一条结果 */
+  find(scene, id) {
     prune()
-    const id = Number(logId)
+    const target = Number(id)
     const list = Object.values(state.items)
-      .filter((item) => item && Array.isArray(item.logIds) && item.logIds.includes(id))
+      .filter(
+        (item) =>
+          item &&
+          item.scene === scene &&
+          Array.isArray(item.logIds) &&
+          item.logIds.includes(target)
+      )
       .sort((a, b) => (b.at || 0) - (a.at || 0))
     return list.length ? list[0] : null
   },
 
   /** 保存分析结果 */
-  save(logIds, question, result) {
+  save(scene, ids, question, result) {
     if (!result || !result.content) return
-    const ids = [...(logIds || [])].map((id) => Number(id))
-    state.items[resultKey(ids, question)] = {
-      logIds: ids,
+    const list = [...(ids || [])].map((id) => Number(id))
+    state.items[resultKey(scene, list, question)] = {
+      scene,
+      logIds: list,
       question: String(question || '').trim(),
       at: Date.now(),
       result: {

@@ -36,8 +36,16 @@
   并新增 `internal/repository/mysql/setting_test.go`（`WAF_TEST_MYSQL_DSN` 存在时连真实库验证连续覆盖）
   与 `internal/service/ai_test.go`（反复保存、掩码保留密钥、默认值裁剪、非法配置校验）。
 
-### 变更
+### 新增功能
 
+- **慢 SQL 也支持 AI 分析（优化方案）**：慢 SQL 列表新增勾选列与「AI 优化建议（N）」按钮、行内「AI / AI建议」入口，
+  详情抽屉内直接展示结果；提示词要求模型按「结论 / 原因分析 / 优化方案（含 `CREATE INDEX` 与 SQL 改写）/
+  风险提示 / 验证方式」输出，并明确要求信息不足时不要编造字段名。
+  后端新增 `SlowSQLRepository.Get`、`AIService.AnalyzeSlowSQL`、`CachedSlowSQLResult` 与
+  `POST /api/ai/slow-sql/analyze`、`GET /api/ai/slow-sql/results/{id}`；
+  `AnalyzeCache` 增加场景维度（log / slow_sql），同一 ID 的两类记录缓存互不串味。
+  前端 `AiAnalyzeDialog` 支持 `scene` 属性复用同一套弹窗（标题/计数/预览标签/占位文案随场景变化），
+  本地缓存键同步加场景前缀；Markdown 渲染补上 ``` 代码块（SQL 提示更易读）。
 - **系统设置全部合并为一个页面**：`运行配置 / WAF 配置 / 外观设置 / AI 设置 / 账号设置` 五个选项卡
   集中在「系统设置」（侧边栏因此只保留一个入口），选项卡状态写入 `?tab=app|waf|appearance|ai|account`；
   `/settings/lua`、`/settings/appearance`、`/settings/ai`、`/settings/account` 与顶栏「账号设置」入口
