@@ -38,6 +38,14 @@
 
 ### 新增功能
 
+- **APISIX 网关：插件下发（镜像复制 + key 限流）**：新增 `internal/apisix`（Admin API 最小客户端，
+  兼容 v2 `node.nodes` 与 v3 `list[].value` 两种响应）与 `service.ApisixService`；
+  后台新增「防护配置 → APISIX 网关」页：展示管理接口状态与路由列表（含已启用的镜像/限流摘要），
+  支持给任意路由**下发/关闭** `proxy-mirror`（地址、路径前缀、采样比例）与 `limit-count`
+  （key、key_type、次数、窗口、拒绝码、local/redis/redis-cluster 策略、配额头）。
+  写回策略为「读路由 → 只合并这两个插件 → PUT 回写」，不会覆盖其它插件与 upstream。
+  配置项 `[apisix] ADMIN_URL / ADMIN_KEY / TIMEOUT_MS`（填 URL 即启用，支持
+  `WAF_APISIX_ADMIN_URL` / `WAF_APISIX_ADMIN_KEY`）；接口见 `docs/API.md`。
 - **安全概览新增「日志入库队列」卡片**：展示待处理（Redis 队列）、处理中、本次启动已入库、失败/丢弃四项指标，
   以及运行状态徽标（运行中 / 轻微积压 / 队列积压 / Redis 断开 / 未启用）、队列键、最近入库时间与最近错误，
   并用 5 分钟队列深度折线（待处理 / 处理中）观察积压趋势；每 10 秒自动刷新，未启用时给出三处开关的启用指引。

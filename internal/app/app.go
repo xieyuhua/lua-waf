@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"time"
 
+	"wafadmin/internal/apisix"
 	"wafadmin/internal/config"
 	"wafadmin/internal/ingest"
 	"wafadmin/internal/model"
@@ -120,6 +121,18 @@ func New(opts Options) (*App, error) {
 	} else {
 		log.Printf("[info] 日志入库消费者未启用（[log] INGEST_ENABLED=off）：lua 直连 MySQL 或 file 模式时属正常")
 	}
+
+	// APISIX 管理接口：下发 proxy-mirror（镜像复制）与 limit-count（key 限流）
+	// 支持在后台启用/关闭并保存到 conf/app.ini（保存后热更新客户端）
+	apisixService := &service.ApisixService{Cfg: cfg, Writer: &config.Writer{Path: configPath(cfg)}}
+	if cfg.Apisix.Enabled && cfg.Apisix.AdminURL != "" {
+		apisixService.Client = apisix.New(apisix.Options{
+			AdminURL: cfg.Apisix.AdminURL,
+			AdminKey: cfg.Apisix.AdminKey,
+			Timeout:  time.Duration(cfg.Apisix.TimeoutMS) * time.Millisecond,
+		})
+	}
+	deps.Apisix = apisixService
 
 	// lua-waf config.lua 在线编辑：保存后可用 nginx reload 生效
 	deps.LuaConfig = &service.LuaConfigService{

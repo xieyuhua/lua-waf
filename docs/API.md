@@ -394,6 +394,17 @@
 
 返回某条慢 SQL 在服务端缓存中的优化建议（多端查看），无缓存返回 `1004`。
 
+### APISIX 插件接口
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/apisix/status` | 管理接口连通状态（enabled / connected / route_count / message） |
+| GET | `/api/apisix/routes` | 路由列表，附带 `mirror`（proxy-mirror）与 `limit`（limit-count）当前配置 |
+| PUT | `/api/apisix/routes/{id}/mirror` | 下发镜像复制：`{ "host": "http://mirror.internal:8080", "path": "/mirror", "sample_ratio": 0.5 }` |
+| DELETE | `/api/apisix/routes/{id}/mirror` | 关闭镜像复制 |
+| PUT | `/api/apisix/routes/{id}/limit` | 下发 key 限流：`{ "key": "http_x_api_key", "key_type": "var", "count": 100, "time_window": 60, "rejected_code": 429, "policy": "redis", "show_limit_quota_header": true }` |
+| DELETE | `/api/apisix/routes/{id}/limit` | 关闭 key 限流 |
+
 ### GET /api/lua/config
 
 返回 lua-waf `config.lua` 的可编辑项（按分组，密钥脱敏）。`unknown` 为未纳入表单的键（如多行 `config_output_html`）：
@@ -426,6 +437,17 @@
 ### GET /api/ai/slow-sql/results/{id}
 
 返回某条慢 SQL 在服务端缓存中的优化建议（多端查看），无缓存返回 `1004`。
+
+### APISIX 插件接口
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/apisix/status` | 管理接口连通状态（enabled / connected / route_count / message） |
+| GET | `/api/apisix/routes` | 路由列表，附带 `mirror`（proxy-mirror）与 `limit`（limit-count）当前配置 |
+| PUT | `/api/apisix/routes/{id}/mirror` | 下发镜像复制：`{ "host": "http://mirror.internal:8080", "path": "/mirror", "sample_ratio": 0.5 }` |
+| DELETE | `/api/apisix/routes/{id}/mirror` | 关闭镜像复制 |
+| PUT | `/api/apisix/routes/{id}/limit` | 下发 key 限流：`{ "key": "http_x_api_key", "key_type": "var", "count": 100, "time_window": 60, "rejected_code": 429, "policy": "redis", "show_limit_quota_header": true }` |
+| DELETE | `/api/apisix/routes/{id}/limit` | 关闭 key 限流 |
 
 ### GET /api/lua/config/raw
 

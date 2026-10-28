@@ -193,6 +193,7 @@ go vet ./...
 | server | `SSL_CERT_DIR` | 站点证书目录（`<域名>/fullchain.pem`、`privkey.pem`） |
 | server | `API_SERVERS` | 集群内其它节点，逗号分隔 |
 | waf | `RULE_PATH` / `LOG_DIR` | 规则文件目录 / WAF 日志目录 |
+| apisix | `ENABLED` / `ADMIN_URL` / `ADMIN_KEY` / `TIMEOUT_MS` | APISIX 管理接口（填了 `ADMIN_URL` 即启用），用于下发镜像复制与 key 限流插件；支持 `WAF_APISIX_ADMIN_URL` / `WAF_APISIX_ADMIN_KEY` 覆盖 |
 | waf | `LUA_CONFIG` | lua-waf 的 `config.lua` 路径（后台「系统设置 → WAF 配置」选项卡可在线修改），默认 `/www/server/nginx/x-waf/config.lua` |
 | waf | `MAP_TARGET` | 攻击地图的防护目标位置（如 `中国-北京`），用于绘制「来源 → 目标」攻击箭头 |
 | pager | `PAGEMax` | 默认分页大小 |
