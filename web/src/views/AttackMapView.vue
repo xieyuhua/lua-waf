@@ -16,7 +16,8 @@ const MIN_ZOOM = 1
 const MAX_ZOOM = 8
 const DEFAULT_CENTER = [12, 18]
 const roamState = { zoom: DEFAULT_ZOOM, center: DEFAULT_CENTER }
-const range = ref('all')
+// 默认展示今日数据（可切换为全部）
+const range = ref('today')
 const autoRefresh = ref(true)
 let timer = null
 let mapRegistered = false
