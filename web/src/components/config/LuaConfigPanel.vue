@@ -11,6 +11,8 @@ const rawContent = ref('')
 
 const meta = reactive({ path: '', exists: false, writable: false, updatedAt: '', unknown: [] })
 const groups = ref([])
+// 当前选中的配置模块（选项卡）
+const activeGroup = ref('')
 
 /** 表单值：key -> value */
 const form = reactive({})
@@ -29,6 +31,9 @@ async function load() {
     meta.updatedAt = data.updated_at
     meta.unknown = data.unknown ?? []
     groups.value = data.groups ?? []
+    if (groups.value.length && !groups.value.some((item) => item.name === activeGroup.value)) {
+      activeGroup.value = groups.value[0].name
+    }
 
     for (const key of Object.keys(form)) delete form[key]
     for (const key of Object.keys(origin)) delete origin[key]
@@ -160,13 +165,17 @@ onMounted(load)
     <el-skeleton v-if="loading" :rows="10" animated />
 
     <template v-else-if="meta.exists">
-      <div class="waf-grid waf-grid--2">
-        <div v-for="group in groups" :key="group.name" class="waf-card">
-          <div class="waf-card-head">
-            <div class="waf-card-title"><span class="bar"></span> {{ group.name }}</div>
-          </div>
+      <div class="waf-card" style="padding: 8px 14px 14px">
+        <el-tabs v-model="activeGroup" class="module-tabs">
+          <el-tab-pane v-for="group in groups" :key="group.name" :name="group.name">
+            <template #label>
+              <span class="module-tab-label">
+                {{ group.name }}
+                <el-tag size="small" type="info" effect="plain" round>{{ group.items.length }}</el-tag>
+              </span>
+            </template>
 
-          <div class="lua-fields">
+          <div class="lua-fields lua-fields--grid">
             <div v-for="item in group.items" :key="item.key" class="lua-field">
               <div class="lua-label">
                 <span>{{ item.label }}</span>
@@ -207,20 +216,17 @@ onMounted(load)
               <div v-if="item.desc" class="lua-desc">{{ item.desc }}</div>
             </div>
           </div>
-        </div>
+          </el-tab-pane>
 
-        <div v-if="meta.unknown.length" class="waf-card">
-          <div class="waf-card-head">
-            <div class="waf-card-title"><span class="bar"></span> 未纳入表单的配置项</div>
-            <div class="waf-card-extra">只读</div>
-          </div>
-          <p class="waf-muted" style="font-size: 12px; line-height: 1.8">
-            以下键在 config.lua 中存在，但暂不支持在线编辑（例如多行 HTML 模板），修改请直接编辑文件：
-          </p>
-          <div style="display: flex; flex-wrap: wrap; gap: 6px">
-            <el-tag v-for="key in meta.unknown" :key="key" size="small" type="info">{{ key }}</el-tag>
-          </div>
-        </div>
+          <el-tab-pane v-if="meta.unknown.length" name="__unknown__" label="未纳入表单">
+            <p class="waf-muted" style="font-size: 12px; line-height: 1.8">
+              以下键在 config.lua 中存在，但暂不支持在线编辑（例如多行 HTML 模板），修改请直接编辑文件：
+            </p>
+            <div style="display: flex; flex-wrap: wrap; gap: 6px">
+              <el-tag v-for="key in meta.unknown" :key="key" size="small" type="info">{{ key }}</el-tag>
+            </div>
+          </el-tab-pane>
+        </el-tabs>
       </div>
     </template>
 
@@ -237,6 +243,33 @@ onMounted(load)
 .lua-fields {
   display: grid;
   gap: 14px;
+}
+
+.lua-fields--grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 24px;
+  padding-top: 6px;
+}
+
+@media (max-width: 900px) {
+  .lua-fields--grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.module-tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.module-tabs :deep(.el-tabs__header) {
+  margin-bottom: 14px;
+}
+
+.module-tabs :deep(.el-tabs__item) {
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .lua-label {

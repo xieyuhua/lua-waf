@@ -5,7 +5,6 @@ import AppConfigPanel from '../components/config/AppConfigPanel.vue'
 import AppearancePanel from '../components/config/AppearancePanel.vue'
 import AiConfigPanel from '../components/config/AiConfigPanel.vue'
 import AccountPanel from '../components/config/AccountPanel.vue'
-import LuaConfigPanel from '../components/config/LuaConfigPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -16,11 +15,6 @@ const TABS = {
     label: '运行配置',
     hint: '在线修改 conf/app.ini 的运行时参数，保存后立即热更新',
     component: AppConfigPanel
-  },
-  waf: {
-    label: 'WAF 配置',
-    hint: '在线修改 openresty 侧的 config.lua，保存后可一键 reload 生效',
-    component: LuaConfigPanel
   },
   appearance: {
     label: '外观设置',
