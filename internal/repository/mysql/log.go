@@ -164,6 +164,27 @@ func (r *logRepo) CountOnDay(ctx context.Context, day string) (int64, error) {
 	return r.engine.Where("local_time LIKE ?", day+"%").Count(new(model.WafLog))
 }
 
+// DistinctAttackTypes 返回出现过的攻击类型（供筛选项使用，走 attack_type 索引）。
+func (r *logRepo) DistinctAttackTypes(ctx context.Context) ([]string, error) {
+	defer r.observer.Trace(ctx, "log.distinct_attack_types", "SELECT DISTINCT attack_type FROM waf_log")()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	rows, err := r.engine.QueryString("SELECT DISTINCT attack_type FROM waf_log WHERE attack_type <> '' ORDER BY attack_type ASC")
+	if err != nil {
+		return nil, err
+	}
+
+	types := make([]string, 0, len(rows))
+	for _, row := range rows {
+		if value := strings.TrimSpace(row["attack_type"]); value != "" {
+			types = append(types, value)
+		}
+	}
+	return types, nil
+}
+
 // IPStats 按来源 IP 聚合攻击次数。
 func (r *logRepo) IPStats(ctx context.Context, filter repository.StatsFilter) ([]model.IPStat, error) {
 	defer r.observer.Trace(ctx, "log.ip_stats", "SELECT client_ip, area, COUNT(*) AS num FROM waf_log GROUP BY client_ip")()
@@ -171,18 +192,33 @@ func (r *logRepo) IPStats(ctx context.Context, filter repository.StatsFilter) ([
 		return nil, err
 	}
 
-	query := "SELECT client_ip, MAX(area) AS area, COUNT(*) AS num, GROUP_CONCAT(DISTINCT attack_type) AS attack_type " +
-		"FROM waf_log "
-	args := make([]any, 0, 2)
+	// 两段式查询：先只按 client_ip 聚合取 Top N（可用 client_ip 索引），
+	// 再对这一小批 IP 回表取地区与攻击类型——避免在百万行上做 GROUP_CONCAT。
+	limit := filter.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+
+	inner := "SELECT client_ip, COUNT(*) AS num FROM waf_log "
+	innerArgs := make([]any, 0, 2)
 	if filter.Day != "" {
-		query += "WHERE local_time LIKE ? "
-		args = append(args, filter.Day+"%")
+		inner += "WHERE local_time LIKE ? "
+		innerArgs = append(innerArgs, filter.Day+"%")
 	}
-	query += "GROUP BY client_ip ORDER BY num DESC"
-	if filter.Limit > 0 {
-		query += " LIMIT ?"
-		args = append(args, filter.Limit)
+	inner += "GROUP BY client_ip ORDER BY num DESC LIMIT ?"
+	innerArgs = append(innerArgs, limit)
+
+	query := "SELECT t.client_ip, MAX(l.area) AS area, MAX(t.num) AS num, " +
+		"GROUP_CONCAT(DISTINCT l.attack_type) AS attack_type " +
+		"FROM (" + inner + ") t JOIN waf_log l ON l.client_ip = t.client_ip "
+	jargs := make([]any, 0, len(innerArgs)+2)
+	jargs = append(jargs, innerArgs...)
+	if filter.Day != "" {
+		query += "WHERE l.local_time LIKE ? "
+		jargs = append(jargs, filter.Day+"%")
 	}
+	query += "GROUP BY t.client_ip ORDER BY num DESC"
+	args := jargs
 
 	stats := make([]model.IPStat, 0, 32)
 	if err := r.engine.SQL(query, args...).Find(&stats); err != nil {
@@ -198,7 +234,9 @@ func (r *logRepo) TypeStats(ctx context.Context, filter repository.StatsFilter) 
 		return nil, err
 	}
 
-	query := "SELECT attack_type, COUNT(*) AS num, GROUP_CONCAT(DISTINCT area) AS area FROM waf_log "
+	// 注意：不要在这里 GROUP_CONCAT(area)——area 取值上千种，在百万行日志上会退化成
+	// 全表扫描 + 临时表去重（实测 20s+）。类型统计只需要类型与次数，地区由地图/概览单独统计。
+	query := "SELECT attack_type, COUNT(*) AS num FROM waf_log "
 	args := make([]any, 0, 2)
 	if filter.Day != "" {
 		query += "WHERE local_time LIKE ? "

@@ -23,6 +23,8 @@ const saving = ref(false)
 const reloading = ref(false)
 // 是否正在测试 Redis / MySQL 连通性
 const testing = ref(false)
+// 是否正在执行生效自检
+const verifying = ref(false)
 const rawVisible = ref(false)
 const rawContent = ref('')
 
@@ -137,6 +139,31 @@ async function testConnections() {
   }
 }
 
+/** 生效自检：确认后台改的是不是 nginx 正在读取的那份 config.lua */
+async function verifyConfig() {
+  verifying.value = true
+  try {
+    const result = await luaApi.verify()
+    const lines = result.items.map((item) => {
+      const mark = item.level === 'error' ? '✘' : item.level === 'warn' ? '!' : '✔'
+      return `${mark} ${item.label}：${item.message}`
+    })
+    ElMessageBox.alert(
+      `当前配置路径：${result.path}\n日志模式：${result.mode || '未设置'}\n\n` + lines.join('\n'),
+      result.verdict === 'error' ? '自检发现问题' : result.verdict === 'warn' ? '自检有提醒' : '自检通过',
+      {
+        type: result.verdict === 'error' ? 'error' : result.verdict === 'warn' ? 'warning' : 'success',
+        confirmButtonText: '知道了',
+        customStyle: { maxWidth: '720px' }
+      }
+    )
+  } catch (error) {
+    ElMessage.error(error.message || '自检失败')
+  } finally {
+    verifying.value = false
+  }
+}
+
 /** 只执行 reload */
 async function reloadOnly() {
   try {
@@ -181,6 +208,7 @@ onMounted(load)
       </p>
       <div class="panel-actions">
         <el-button :loading="testing" @click="testConnections"><el-icon><Connection /></el-icon> 测试连接</el-button>
+        <el-button :loading="verifying" @click="verifyConfig"><el-icon><CircleCheck /></el-icon> 生效自检</el-button>
         <el-button text :disabled="!meta.exists" @click="viewRaw"><el-icon><Document /></el-icon> 查看原文</el-button>
         <el-button :loading="reloading" @click="reloadOnly"><el-icon><RefreshRight /></el-icon> 仅 reload</el-button>
         <el-button :disabled="!meta.exists || !dirty" :loading="saving" @click="save(false)">

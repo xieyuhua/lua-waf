@@ -89,7 +89,27 @@ config_redis_list_key = "waf:logs",
 
 Redis 建议：开启 AOF（`appendonly yes`），内存策略设为 `noeviction`（避免队列被淘汰丢日志）。
 
-### 4.2 消费者没生效的排查
+### 4.2 「配了 redis，却还在写文件」怎么查
+
+按顺序排查（用 WAF 配置页的「**生效自检**」按钮可一次看到前 3 项）：
+
+1. **改的是不是同一份文件**：后台 `[waf] LUA_CONFIG` 必须指向 nginx 实际加载的 config.lua
+   （通常 `/www/server/nginx/x-waf/config.lua`）。若配成相对路径 `lua-waf/config.lua`，
+   后台编辑的是仓库副本，nginx 读的是另一份 → reload 也不会变。自检会提示「检测到另一份配置文件」。
+2. **Redis 到底通不通**：lua 用 `lua-resty-redis` 连 Redis，连不上/口令错时 `log_sink` 会
+   **打 WARN 并回落到写文件**（这是有意的“不丢日志”设计）。用「测试连接」确认；再查
+   `nginx error.log` 里是否有 `[waf] Redis 队列写入失败`。
+3. **依赖是否齐全**：`lua-resty-redis` 是否安装、`nginx.conf` 是否声明了
+   `lua_shared_dict waf_log_queue 20m;` 与 `lua_shared_dict waf_log_meta 1m;`。
+4. **消费方是否冲突**：`config_redis_consume = "on"`（nginx 消费）与
+   `[log] INGEST_ENABLED = on`（后台消费）**只能开一个**。
+5. **是否真的 reload**：改完必须 `nginx -t && nginx -s reload`；`config.lua` 是在
+   `init_worker` 阶段加载的，不 reload 不会重新读取。
+
+验证是否生效：`redis-cli -a <口令> LLEN waf:logs` 数值在涨 = nginx 已在写队列；
+`ls -l <LOG_DIR>` 不再新增文件 = 文件模式已停止。
+
+### 4.3 消费者没生效的排查
 
 ```bash
 # 1) 看启动日志

@@ -20,6 +20,7 @@ func (h *LuaConfigHandler) Register(mux *http.ServeMux, routes Routes) {
 	mux.HandleFunc("PUT /api/lua/config", routes.Private(h.update))
 	mux.HandleFunc("GET /api/lua/config/raw", routes.Private(h.raw))
 	mux.HandleFunc("POST /api/lua/config/test", routes.Private(h.testConnections))
+	mux.HandleFunc("GET /api/lua/config/verify", routes.Private(h.verify))
 	mux.HandleFunc("POST /api/lua/reload", routes.Private(h.reload))
 }
 
@@ -84,6 +85,17 @@ func (h *LuaConfigHandler) testConnections(w http.ResponseWriter, r *http.Reques
 	}
 
 	result, err := h.Lua.TestConnections(r.Context(), service.CoerceLuaValues(payload.Values))
+	if err != nil {
+		h.Error(w, err)
+		return
+	}
+	h.Data(w, result)
+}
+
+// verify 做「配置生效自检」：确认后台改的是不是 nginx 正在读的那份 config.lua，
+// 以及日志模式（file/mysql/redis）的前置条件是否满足。
+func (h *LuaConfigHandler) verify(w http.ResponseWriter, r *http.Request) {
+	result, err := h.Lua.Verify(r.Context())
 	if err != nil {
 		h.Error(w, err)
 		return

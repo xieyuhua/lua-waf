@@ -35,6 +35,8 @@ type LogRepository interface {
 	IPStats(ctx context.Context, filter StatsFilter) ([]model.IPStat, error)
 	// TypeStats 按攻击类型聚合，filter.Day 为空表示全部数据。
 	TypeStats(ctx context.Context, filter StatsFilter) ([]model.TypeStat, error)
+	// DistinctAttackTypes 返回出现过的攻击类型（去重，供筛选项使用）。
+	DistinctAttackTypes(ctx context.Context) ([]string, error)
 	// DateTrend 返回最近 days 天的每日攻击趋势（按日期升序）。
 	DateTrend(ctx context.Context, days int) ([]model.DateStat, error)
 }

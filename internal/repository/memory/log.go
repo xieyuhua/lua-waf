@@ -178,6 +178,31 @@ func (r *logRepo) CountOnDay(ctx context.Context, day string) (int64, error) {
 	return total, nil
 }
 
+// DistinctAttackTypes 返回出现过的攻击类型（供筛选项使用）。
+func (r *logRepo) DistinctAttackTypes(ctx context.Context) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	r.store.mu.RLock()
+	defer r.store.mu.RUnlock()
+
+	seen := make(map[string]struct{}, 16)
+	types := make([]string, 0, 16)
+	for _, item := range r.store.logs {
+		if strings.TrimSpace(item.AttackType) == "" {
+			continue
+		}
+		if _, ok := seen[item.AttackType]; ok {
+			continue
+		}
+		seen[item.AttackType] = struct{}{}
+		types = append(types, item.AttackType)
+	}
+	sort.Strings(types)
+	return types, nil
+}
+
 // IPStats 按来源 IP 聚合攻击次数。
 func (r *logRepo) IPStats(ctx context.Context, filter repository.StatsFilter) ([]model.IPStat, error) {
 	if err := ctx.Err(); err != nil {

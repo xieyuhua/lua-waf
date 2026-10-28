@@ -2,7 +2,7 @@ package service
 
 import (
 	"context"
-	"sort"
+	"sync"
 	"time"
 
 	"wafadmin/internal/model"
@@ -23,6 +23,37 @@ type LogOverview struct {
 type LogService struct {
 	Logs     repository.LogRepository
 	PageSize int
+
+	// 攻击类型清单缓存：筛选项变动不频繁，缓存 60 秒，
+	// 避免每次打开日志页都在百万行日志上做聚合查询。
+	cacheMu    sync.Mutex
+	cacheTypes []string
+	cacheAt    time.Time
+	cacheTTL   time.Duration
+}
+
+// cachedAttackTypes 命中缓存时返回类型清单。
+func (s *LogService) cachedAttackTypes() ([]string, bool) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+
+	ttl := s.cacheTTL
+	if ttl <= 0 {
+		ttl = 60 * time.Second
+	}
+	if len(s.cacheTypes) > 0 && time.Since(s.cacheAt) < ttl {
+		return s.cacheTypes, true
+	}
+	return nil, false
+}
+
+// storeAttackTypes 写入类型清单缓存。
+func (s *LogService) storeAttackTypes(types []string) {
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+
+	s.cacheTypes = types
+	s.cacheAt = time.Now()
 }
 
 // List 按筛选条件分页查询日志。
@@ -111,16 +142,16 @@ func (s *LogService) Overview(ctx context.Context, days int) (*LogOverview, erro
 
 // AttackTypes 返回出现过的攻击类型，用于筛选项。
 func (s *LogService) AttackTypes(ctx context.Context) ([]string, error) {
-	stats, err := s.Logs.TypeStats(ctx, repository.StatsFilter{})
+	// 筛选项只需“有哪些类型”，用 DISTINCT 查询（走索引），并缓存 60 秒，
+	// 避免每次打开日志页都在百万行日志上做一次 GROUP BY。
+	if types, ok := s.cachedAttackTypes(); ok {
+		return types, nil
+	}
+
+	types, err := s.Logs.DistinctAttackTypes(ctx)
 	if err != nil {
 		return nil, ErrInternal.Wrap(err, "统计攻击类型失败")
 	}
-	types := make([]string, 0, len(stats))
-	for _, item := range stats {
-		if item.AttackType != "" {
-			types = append(types, item.AttackType)
-		}
-	}
-	sort.Strings(types)
+	s.storeAttackTypes(types)
 	return types, nil
 }

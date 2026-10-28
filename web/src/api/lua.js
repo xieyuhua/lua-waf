@@ -8,6 +8,8 @@ export const luaApi = {
   save: (values) => api.put('/lua/config', { values }),
   /** 保存前测试 Redis / MySQL 连通性（用表单当前值） */
   test: (values) => api.post('/lua/config/test', { values }),
+  /** 配置生效自检：确认改的是 nginx 正在读的文件、日志模式前置条件是否满足 */
+  verify: () => api.get('/lua/config/verify'),
   /** 读取 config.lua 原文 */
   raw: () => api.get('/lua/config/raw'),
   /** 让修改生效（nginx -t && nginx -s reload） */

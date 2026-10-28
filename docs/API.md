@@ -94,6 +94,7 @@
 | PUT | `/api/lua/config` | 保存：`{ "values": { "config_xxx": "值" } }`，只提交变化的项 |
 | GET | `/api/lua/config/raw` | config.lua 原文 |
 | POST | `/api/lua/config/test` | **保存前连通性自检**：用表单当前值测试 Redis / MySQL（返回 `redis`/`mysql` 各自的 `ok`、`latency_ms`、`message`） |
+| GET | `/api/lua/config/verify` | **生效自检**：确认改的是不是 nginx 正在读的那份 config.lua；检查日志模式（file/mysql/redis）前置条件、目录一致性，返回逐项 `ok/warn/error` 与总结论 |
 | POST | `/api/lua/reload` | 执行 `nginx -t && nginx -s reload` |
 
 控件类型：`switch` / `number` / `text` / `select` / `secret` / `code`（多行模板，如拦截页 HTML）。

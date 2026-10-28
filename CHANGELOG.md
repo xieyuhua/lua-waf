@@ -81,6 +81,16 @@
   WAF 配置页工具条新增按钮，保存前即可确认地址/口令是否可用；错误信息按类型翻译
   （拒绝连接 / 超时 / 域名解析失败 / Access denied / Unknown database / Redis 口令错误），口令支持掩码复用已保存值。
 
+### 修复（日志模式不生效 / 改错文件）
+
+- **`[waf] LUA_CONFIG` 默认改回 nginx 实际路径**（`/www/server/nginx/x-waf/config.lua`）：
+  之前是相对路径 `lua-waf/config.lua`，后台改的是仓库副本，nginx reload 后自然不生效（本地联调用 `WAF_LUA_CONFIG` 覆盖）。
+- **新增「生效自检」**（`GET /api/lua/config/verify` + WAF 配置页按钮）：逐项检查
+  ① 配置路径是否绝对路径、② 规则目录同目录下是否还有另一份 config.lua（很可能是 nginx 真正加载的那份）、
+  ③ 日志模式取值与 Redis 连通性（连接失败会提示「log_sink 会回落到写文件」）、
+  ④ `config_redis_consume` 与后台 `[log] INGEST_ENABLED` 是否冲突、⑤ 规则目录是否存在，
+  并给出 ok/warn/error 与总结论。
+
 ### 已知问题 / 注意
 
 - `conf/app.ini` 的 `SESSION_SECRET` 为空时每次重启会失效会话，生产必须填固定值。
