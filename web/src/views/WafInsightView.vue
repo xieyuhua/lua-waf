@@ -10,10 +10,6 @@ const ruleStats = ref([])
 const statsDays = ref(7)
 const totalHits = computed(() => ruleStats.value.reduce((sum, item) => sum + item.count, 0))
 
-// 检测顺序
-const pipeline = ref(null)
-const pipelineExpanded = ref(true)
-
 // 命中样例抽屉
 const sampleVisible = ref(false)
 const sampleLoading = ref(false)
@@ -21,7 +17,7 @@ const sample = ref(null)
 const sampleDays = ref(7)
 const currentTag = ref('')
 
-/** 加载命中 Top */
+/** 加载命中排行 */
 async function loadStats() {
   statsLoading.value = true
   try {
@@ -31,15 +27,6 @@ async function loadStats() {
     ElMessage.error(error.message || '读取命中统计失败')
   } finally {
     statsLoading.value = false
-  }
-}
-
-/** 加载检测顺序 */
-async function loadPipeline() {
-  try {
-    pipeline.value = await ruleApi.pipeline()
-  } catch (error) {
-    /* 说明信息不可用不影响其它功能 */
   }
 }
 
@@ -89,10 +76,7 @@ async function toggleRule() {
   }
 }
 
-onMounted(() => {
-  loadStats()
-  loadPipeline()
-})
+onMounted(loadStats)
 </script>
 
 <template>
@@ -100,7 +84,7 @@ onMounted(() => {
     <div class="waf-page-head">
       <div>
         <h1 class="waf-page-title"><span class="dot"></span> 防护分析</h1>
-        <p class="waf-page-sub">规则命中排行与 WAF 检测拦截顺序，用于评估规则效果与排查误杀</p>
+        <p class="waf-page-sub">规则命中排行与命中样例，用于评估规则效果和排查误杀</p>
       </div>
       <div style="display: flex; gap: 10px; align-items: center">
         <el-radio-group v-model="statsDays" size="small" @change="loadStats">
@@ -114,12 +98,11 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- 规则命中 Top -->
-    <div class="waf-card" style="margin-bottom: 16px">
+    <div class="waf-card">
       <div class="waf-card-head">
         <div class="waf-card-title"><span class="bar"></span> 规则命中 Top</div>
         <div class="waf-card-extra">
-          共 {{ totalHits }} 次 · 点击任一规则查看命中样例（判断是否误杀）
+          共 {{ totalHits }} 次命中 · 点击「看样例」查看该规则的真实命中日志，用于判断是否误杀
         </div>
       </div>
 
@@ -156,46 +139,6 @@ onMounted(() => {
           <div class="waf-empty">所选时间段内没有命中记录</div>
         </template>
       </el-table>
-    </div>
-
-    <!-- 检测与拦截顺序 -->
-    <div v-if="pipeline" class="waf-card">
-      <div class="waf-card-head">
-        <div class="waf-card-title"><span class="bar"></span> 检测与拦截顺序</div>
-        <div style="display: flex; align-items: center; gap: 10px">
-          <span class="waf-muted" style="font-size: 11.5px">与 lua-waf/waf.lua 的 check() 一致</span>
-          <el-button text size="small" @click="pipelineExpanded = !pipelineExpanded">
-            {{ pipelineExpanded ? '收起' : '展开' }}
-          </el-button>
-        </div>
-      </div>
-
-      <div v-show="pipelineExpanded">
-        <div class="pipeline-list">
-          <div v-for="step in pipeline.steps" :key="step.order" class="pipeline-item">
-            <span class="pipeline-order">{{ step.order }}</span>
-            <div class="pipeline-main">
-              <div class="pipeline-title">
-                {{ step.title }}
-                <el-tag
-                  size="small"
-                  :type="step.action === 'allow' ? 'success' : step.action === 'deny' ? 'danger' : 'warning'"
-                  effect="light"
-                >
-                  {{ step.action === 'allow' ? '放行' : step.action === 'deny' ? '拦截' : '检测' }}
-                </el-tag>
-                <code v-if="step.rule_file" class="waf-mono pipeline-chip">{{ step.rule_file }}</code>
-                <code v-if="step.switch" class="waf-mono pipeline-chip">{{ step.switch }}</code>
-              </div>
-              <div class="pipeline-desc">{{ step.desc }}</div>
-            </div>
-          </div>
-        </div>
-
-        <ul class="pipeline-notes">
-          <li v-for="(note, index) in pipeline.notes" :key="index">{{ note }}</li>
-        </ul>
-      </div>
     </div>
 
     <!-- 命中样例抽屉 -->
@@ -273,72 +216,6 @@ onMounted(() => {
   font-size: 11.5px;
   color: var(--waf-text-muted);
   word-break: break-all;
-}
-
-.pipeline-list {
-  display: grid;
-  gap: 8px;
-}
-
-.pipeline-item {
-  display: flex;
-  gap: 10px;
-  padding: 8px 10px;
-  border: 1px solid var(--waf-border);
-  border-radius: 10px;
-  background: var(--waf-surface-2);
-}
-
-.pipeline-order {
-  flex: 0 0 22px;
-  height: 22px;
-  line-height: 22px;
-  text-align: center;
-  border-radius: 50%;
-  background: var(--waf-primary);
-  color: #fff;
-  font-size: 11.5px;
-  font-weight: 700;
-}
-
-.pipeline-main {
-  min-width: 0;
-  flex: 1;
-}
-
-.pipeline-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  font-size: 13px;
-  font-weight: 650;
-  color: var(--waf-text);
-}
-
-.pipeline-chip {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--waf-text-muted);
-  background: var(--waf-surface);
-  border: 1px solid var(--waf-border);
-  border-radius: 6px;
-  padding: 1px 6px;
-}
-
-.pipeline-desc {
-  margin-top: 4px;
-  font-size: 12px;
-  line-height: 1.65;
-  color: var(--waf-text-muted);
-}
-
-.pipeline-notes {
-  margin: 10px 0 0;
-  padding-left: 18px;
-  font-size: 12px;
-  line-height: 1.8;
-  color: var(--waf-text-muted);
 }
 
 .sample-head {

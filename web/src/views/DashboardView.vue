@@ -5,9 +5,33 @@ import StatCard from '../components/StatCard.vue'
 import ChartPanel from '../components/ChartPanel.vue'
 import { dashboardApi } from '../api/dashboard'
 import { systemApi } from '../api/system'
+import { ruleApi } from '../api/rule'
 import { themeStore } from '../stores/theme'
 
 const loading = ref(true)
+
+// WAF 检测与拦截顺序（默认收起，点击标题展开；首次展开时懒加载）
+const pipeline = ref(null)
+const pipelineOpen = ref(false)
+const pipelineLoading = ref(false)
+// 未展开时的提示文案（展开并加载后显示数据来源说明）
+const pipelineHint = computed(() =>
+  pipeline.value ? '与 lua-waf/waf.lua 的 check() 一致 · 串行执行，任一命中即结束' : '点击展开查看 12 步检测链路'
+)
+
+/** 展开/收起检测顺序说明 */
+async function togglePipeline() {
+  pipelineOpen.value = !pipelineOpen.value
+  if (!pipelineOpen.value || pipeline.value || pipelineLoading.value) return
+  pipelineLoading.value = true
+  try {
+    pipeline.value = await ruleApi.pipeline()
+  } catch (error) {
+    /* 说明信息不可用不影响看板 */
+  } finally {
+    pipelineLoading.value = false
+  }
+}
 const summary = ref(null)
 
 // 日志入库队列（lua 写 Redis、Go 消费入库）的实时指标
@@ -194,6 +218,47 @@ onBeforeUnmount(() => {
     <el-skeleton v-if="loading && !summary" :rows="8" animated />
 
     <template v-else>
+      <!-- WAF 检测与拦截顺序：默认收起，点击标题展开 -->
+      <div class="waf-card pipeline-panel" style="margin-bottom: 16px">
+        <div class="pipeline-toggle" @click="togglePipeline">
+          <div class="waf-card-title">
+            <span class="bar"></span> 检测与拦截顺序
+            <el-tag v-if="pipeline" size="small" type="info" effect="plain" round>{{ pipeline.steps.length }} 步</el-tag>
+          </div>
+          <div class="pipeline-toggle-right">
+            <span class="waf-muted">{{ pipelineHint }}</span>
+            <el-icon class="pipeline-arrow" :class="{ 'is-open': pipelineOpen }"><ArrowDown /></el-icon>
+          </div>
+        </div>
+
+        <div v-show="pipelineOpen" v-loading="pipelineLoading" class="pipeline-body">
+          <div class="pipeline-list">
+            <div v-for="step in pipeline?.steps || []" :key="step.order" class="pipeline-item">
+              <span class="pipeline-order">{{ step.order }}</span>
+              <div class="pipeline-main">
+                <div class="pipeline-title">
+                  {{ step.title }}
+                  <el-tag
+                    size="small"
+                    :type="step.action === 'allow' ? 'success' : step.action === 'deny' ? 'danger' : 'warning'"
+                    effect="light"
+                  >
+                    {{ step.action === 'allow' ? '放行' : step.action === 'deny' ? '拦截' : '检测' }}
+                  </el-tag>
+                  <code v-if="step.rule_file" class="waf-mono pipeline-chip">{{ step.rule_file }}</code>
+                  <code v-if="step.switch" class="waf-mono pipeline-chip">{{ step.switch }}</code>
+                </div>
+                <div class="pipeline-desc">{{ step.desc }}</div>
+              </div>
+            </div>
+          </div>
+
+          <ul v-if="pipeline?.notes?.length" class="pipeline-notes">
+            <li v-for="(note, index) in pipeline.notes" :key="index">{{ note }}</li>
+          </ul>
+        </div>
+      </div>
+
       <div class="waf-grid waf-grid--4" style="margin-bottom: 16px">
         <StatCard label="今日拦截" :value="summary?.logs_today ?? 0" icon="Warning" color="linear-gradient(135deg,#f97316,#ef4444)" hint="当日命中规则数" />
         <StatCard label="累计攻击" :value="summary?.logs_total ?? 0" icon="DataLine" color="linear-gradient(135deg,#6366f1,#8b5cf6)" hint="全部历史记录" />
@@ -331,6 +396,104 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.pipeline-panel {
+  padding: 12px 16px;
+}
+
+.pipeline-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.pipeline-toggle-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11.5px;
+}
+
+.pipeline-arrow {
+  transition: transform 0.18s ease;
+}
+
+.pipeline-arrow.is-open {
+  transform: rotate(180deg);
+}
+
+.pipeline-body {
+  margin-top: 12px;
+}
+
+.pipeline-list {
+  display: grid;
+  gap: 8px;
+}
+
+.pipeline-item {
+  display: flex;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--waf-border);
+  border-radius: 10px;
+  background: var(--waf-surface-2);
+}
+
+.pipeline-order {
+  flex: 0 0 22px;
+  height: 22px;
+  line-height: 22px;
+  text-align: center;
+  border-radius: 50%;
+  background: var(--waf-primary);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.pipeline-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.pipeline-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--waf-text);
+}
+
+.pipeline-chip {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--waf-text-muted);
+  background: var(--waf-surface);
+  border: 1px solid var(--waf-border);
+  border-radius: 6px;
+  padding: 1px 6px;
+}
+
+.pipeline-desc {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--waf-text-muted);
+}
+
+.pipeline-notes {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--waf-text-muted);
+}
+
 .ingest-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
