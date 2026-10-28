@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"wafadmin/internal/repository"
 )
 
 // LuaConfigItem 是返回给前端的单个配置项。
@@ -83,6 +85,8 @@ type LuaConfigService struct {
 	Path string
 	// Reloader 负责保存后让配置生效，可为空（演示模式）。
 	Reloader LuaReloader
+	// Logs 用于「生效自检」里查最近一条攻击日志，判断日志链路是否真的在入库（可为空）。
+	Logs repository.LogRepository
 
 	// mu 串行化读写，避免并发保存互相覆盖。
 	mu sync.Mutex

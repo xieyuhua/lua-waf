@@ -134,6 +134,7 @@ func New(opts Options) (*App, error) {
 
 	// lua-waf config.lua 在线编辑：保存后可用 nginx reload 生效
 	deps.LuaConfig = &service.LuaConfigService{
+		Logs:     repos.Log,
 		Path:     cfg.LuaConfigPath,
 		Reloader: builder.nginxManager(),
 	}

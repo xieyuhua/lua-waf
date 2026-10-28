@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"wafadmin/internal/model"
 	"wafadmin/pkg/redis"
 )
 
@@ -167,7 +168,9 @@ func (s *LuaConfigService) Verify(ctx context.Context) (*LuaVerifyView, error) {
 		}
 	}
 
-	// 4.2) redis 模式下顺带报告队列长度：>0 说明 nginx 确实在写队列
+	// 4.2) redis 模式下报告队列长度。
+	// 注意：config_redis_consume = on 时 nginx 自己会消费队列，LLEN 长期为 0 属正常，
+	// 此时真正的判据是「MySQL 里最近有没有新日志」，见 4.3。
 	if mode == "redis" {
 		redisPort := values["config_redis_port"]
 		if redisPort == "" {
@@ -184,14 +187,32 @@ func (s *LuaConfigService) Verify(ctx context.Context) (*LuaVerifyView, error) {
 			length, lerr := client.LLen(key)
 			_ = client.Close()
 			if lerr == nil {
+				consumeOn := strings.ToLower(strings.TrimSpace(view.RedisConsume)) != "off"
 				level := "ok"
-				message := fmt.Sprintf("队列 %s 当前长度 %d（有攻击流量时应持续增长）", key, length)
-				if length == 0 {
+				message := fmt.Sprintf("队列 %s 当前长度 %d", key, length)
+				if consumeOn {
+					message += "（config_redis_consume = on：nginx 自己消费，长度通常接近 0，属正常；以下面的「最近入库」为准）"
+				} else if length == 0 {
 					level = "warn"
-					message += "；若线上有攻击但仍为 0，说明 nginx 没有写队列（模式没生效或回落写文件）"
+					message += "；nginx 只写不消费，若线上有攻击仍为 0，说明 nginx 没在写队列（模式没生效或回落写文件）"
+				} else {
+					message += "（nginx 只写不消费，长度应持续增长）"
 				}
 				add("redis_queue", "Redis 队列", level, message)
 			}
+		}
+	}
+	// 4.3) 最近入库时间：日志链路的最终判据（不管 file/mysql/redis 模式）
+	if s.Logs != nil {
+		if latest, okTime, err := s.latestLogTime(ctx); err == nil && okTime {
+			age := time.Since(latest)
+			level := "ok"
+			message := fmt.Sprintf("最近一条攻击日志入库于 %s（%s 前）", latest.Format("2006-01-02 15:04:05"), age.Round(time.Minute))
+			if age > 30*time.Minute {
+				level = "warn"
+				message += "；半小时内没有新日志，若线上有攻击请检查 nginx 侧是否回落写文件（error.log 搜「Redis 队列写入失败」）"
+			}
+			add("db_recent", "最近入库", level, message)
 		}
 	}
 	// 5) 汇总结论
@@ -249,4 +270,26 @@ func newestFile(dir string) (time.Time, string, error) {
 		}
 	}
 	return newest, name, nil
+}
+
+// latestLogTime 返回最近一条攻击日志的入库时间（解析失败时 ok=false）。
+func (s *LuaConfigService) latestLogTime(ctx context.Context) (time.Time, bool, error) {
+	items, _, err := s.Logs.List(ctx, model.LogQuery{ListQuery: model.ListQuery{Page: 1, Size: 1}})
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	if len(items) == 0 {
+		return time.Time{}, false, nil
+	}
+
+	raw := strings.TrimSpace(items[0].LocalTime)
+	if raw == "" {
+		return time.Time{}, false, nil
+	}
+	for _, layout := range []string{"2006-01-02 15:04:05", time.RFC3339, "2006/01/02 15:04:05"} {
+		if parsed, parseErr := time.ParseInLocation(layout, raw, time.Local); parseErr == nil {
+			return parsed, true, nil
+		}
+	}
+	return time.Time{}, false, nil
 }
