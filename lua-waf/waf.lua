@@ -40,7 +40,7 @@ function _M.white_ip_check()
         local WHITE_IP = util.get_client_ip()
         if IP_WHITE_RULE ~= nil then
             for _, rule in pairs(IP_WHITE_RULE) do
-                if rule ~= "" and rulematch(WHITE_IP, rule, "jo") then
+                if rule ~= "" and rulematch(WHITE_IP, rule, "joi") then
                     return true
                 end
             end
@@ -74,7 +74,7 @@ function _M.black_ip_check()
         -- BLACK_IP = '106.91.161.188'
         if IP_BLACK_RULE ~= nil then
             for _, rule in pairs(IP_BLACK_RULE) do
-                if rule ~= "" and rulematch(BLACK_IP, rule, "jo") then
+                if rule ~= "" and rulematch(BLACK_IP, rule, "joi") then
                     -- util.log_record(config.config_log_dir, '黑名单ip', ngx.var_request_uri, "_", "_")
                     if config.config_waf_enable == "on" then
                         ngx.exit(403)

@@ -122,6 +122,8 @@ func (s *LuaConfigService) fields() []luaField {
 		{Key: "config_user_agent_check", Label: "User-Agent 检测", Type: luaTypeSwitch, Group: groupCheck},
 		{Key: "config_cookie_check", Label: "Cookie 检测", Type: luaTypeSwitch, Group: groupCheck},
 		{Key: "config_header_check", Label: "请求头检测", Type: luaTypeSwitch, Group: groupCheck, Desc: "Host 注入、代理头伪造、头部 JNDI、头内注入（规则文件 header.rule）"},
+		{Key: "config_upload_check", Label: "上传后缀白名单校验", Type: luaTypeSwitch, Group: groupCheck, Desc: "开启后上传文件后缀不在白名单内即拦截（config_upload_ext_whitelist）"},
+		{Key: "config_upload_ext_whitelist", Label: "允许的上传后缀", Type: luaTypeText, Group: groupCheck, Desc: "逗号分隔，例如 jpg,png,pdf,docx,zip"},
 		{Key: "config_cc_check", Label: "CC 频率检测", Type: luaTypeSwitch, Group: groupCheck},
 		{Key: "config_ipcc_check", Label: "IP 频率检测", Type: luaTypeSwitch, Group: groupCheck},
 		{Key: "config_post_check", Label: "请求体检测", Type: luaTypeSwitch, Group: groupCheck},

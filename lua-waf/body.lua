@@ -16,6 +16,7 @@
 
 local config = require("config")
 local util = require("util")
+local cjson = require("cjson.safe")
 
 local _M = {}
 
@@ -149,6 +150,69 @@ function _M.match_rules(text, rules)
     return nil
 end
 
+-- 把 JSON 体展开为待检测片段：递归取出所有键与字符串值
+-- 目的：拦住 {"cmd":"<编码后的 payload>"} 这类"藏在字段值里"的攻击
+function _M.json_segments(raw, limit)
+    local segments = {}
+    local decoded = cjson.decode(raw)
+    if decoded == nil then
+        return segments
+    end
+
+    local function walk(node, depth)
+        if #segments >= limit or depth > 8 then
+            return
+        end
+        local kind = type(node)
+        if kind == "string" then
+            segments[#segments + 1] = node
+        elseif kind == "table" then
+            for key, value in pairs(node) do
+                if #segments >= limit then
+                    return
+                end
+                if type(key) == "string" then
+                    segments[#segments + 1] = key
+                end
+                walk(value, depth + 1)
+            end
+        elseif kind == "number" or kind == "boolean" then
+            segments[#segments + 1] = tostring(node)
+        end
+    end
+
+    walk(decoded, 1)
+    return segments
+end
+
+-- 校验上传文件后缀是否在允许清单内，返回：错误信息, 规则标识
+function _M.check_upload_ext(parts)
+    if config.config_upload_check ~= "on" then
+        return nil, nil
+    end
+
+    local list = config.config_upload_ext_whitelist or ""
+    local allowed = {}
+    for ext in string.gmatch(list, "[^,%s]+") do
+        allowed[string.lower(ext)] = true
+    end
+    if next(allowed) == nil then
+        return nil, nil
+    end
+
+    for _, part in ipairs(parts) do
+        local filename = part.filename
+        if filename ~= nil and filename ~= "" then
+            local base = string.match(filename, "([^/\\]+)$") or filename
+            local ext = string.lower(string.match(base, "%.([%w]+)$") or "")
+            if ext == "" or allowed[ext] == nil then
+                return "上传文件类型不在允许清单: " .. base, "post.upload.ext"
+            end
+        end
+    end
+    return nil, nil
+end
+
 -- 把 urlencoded / json 体展开为待检测的片段
 function _M.split_segments(raw, content_type)
     local segments = {}
@@ -167,7 +231,18 @@ function _M.split_segments(raw, content_type)
         return segments
     end
 
-    -- JSON 与其他类型：整体检测，同时兜底检测转义后的内容
+    -- JSON：字段级展开（递归取键与字符串值）+ 原始体兜底
+    if string.find(content_type, "application/json", 1, true) or string.find(content_type, "+json", 1, true) then
+        local max_segments = tonumber(config.config_post_max_parts) or 200
+        local leaves = _M.json_segments(raw, max_segments)
+        for _, item in ipairs(leaves) do
+            segments[#segments + 1] = item
+        end
+        segments[#segments + 1] = raw
+        return segments
+    end
+
+    -- 其他类型：整体检测，同时兜底检测转义后的内容
     segments[#segments + 1] = raw
     return segments
 end
@@ -217,6 +292,12 @@ function _M.check(post_rules)
             return true, "分段畸形", "multipart请求无有效分段", "post.multipart.empty"
         end
 
+        -- 上传文件类型白名单校验（config_upload_check / config_upload_ext_whitelist）
+        local upload_err, upload_tag = _M.check_upload_ext(parts)
+        if upload_err ~= nil then
+            return true, "上传攻击", upload_err, upload_tag
+        end
+
         for _, part in ipairs(parts) do
             local detail, tag = _M.inspect_part(part)
             if detail ~= nil then
@@ -238,11 +319,20 @@ function _M.check(post_rules)
         segments = _M.split_segments(raw, content_type)
     end
 
-    -- 3. 逐段套用 post 规则
+    -- 3. 逐段套用 post 规则（同时对归一化后的内容再做一次，抵御编码绕过）
     for _, segment in ipairs(segments) do
         local matched = _M.match_rules(segment, post_rules)
+        local subject = segment
+        if matched == nil then
+            local normalized = util.normalize(segment)
+            if normalized ~= segment then
+                matched = _M.match_rules(normalized, post_rules)
+                subject = normalized
+            end
+        end
+
         if matched ~= nil then
-            local detail = string.sub(segment, 1, MAX_LOG_LENGTH)
+            local detail = string.sub(subject, 1, MAX_LOG_LENGTH)
             if from_file then
                 detail = "[临时文件] " .. detail
             end

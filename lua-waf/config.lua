@@ -71,6 +71,11 @@ config_header_check = "on",
     config_post_max_size = 8388608,
     -- multipart 分段数量上限，超过视为异常分段
     config_post_max_parts = 200,
+
+-- 上传文件后缀白名单校验（config_upload_check = "on" 时生效）
+-- 允许清单用逗号分隔；不在清单内的上传直接拦截（可用于阻止 webshell 上传）
+config_upload_check = "off",
+config_upload_ext_whitelist = "jpg,jpeg,png,gif,webp,bmp,pdf,doc,docx,xls,xlsx,ppt,pptx,txt,csv,zip,rar,7z,mp4,mp3,wav",
     -- enable/disable 畸形请求检测（TE/CL 走私、重复 Content-Length、裸 CRLF、非法编码等）
     config_malformed_check = "on",
     -- 检测到攻击是否自动封禁来源 IP（默认关闭：NAT / CDN 回源等共享 IP 场景易误杀）
