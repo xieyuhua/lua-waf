@@ -72,6 +72,15 @@
 - 口令 `md5(md5(raw)[5:10])` 兼容历史库；新增 CLI `reset-password` / `list-users` / `version`。
 - 敏感配置（MySQL/Redis 口令、AI api_key）接口层脱敏，提交掩码表示不修改。
 
+### 修复（WAF 配置保存与连通性自检）
+
+- **修复保存 WAF 配置报「请求参数格式不正确」**：接口原先按 `map[string]string` 绑定，
+  而前端数字控件（`el-input-number`）提交的是 JSON 数字，只要保存涉及任一瞬间数值字段就会 400/1001；
+  改为 `map[string]any` 接住后统一转字符串（数字按十进制、布尔按 `on`/`off`），前端也统一转字符串提交。
+- **新增「测试连接」**：`POST /api/lua/config/test` 用表单当前值测试 Redis（PING）与 MySQL（Ping），
+  WAF 配置页工具条新增按钮，保存前即可确认地址/口令是否可用；错误信息按类型翻译
+  （拒绝连接 / 超时 / 域名解析失败 / Access denied / Unknown database / Redis 口令错误），口令支持掩码复用已保存值。
+
 ### 已知问题 / 注意
 
 - `conf/app.ini` 的 `SESSION_SECRET` 为空时每次重启会失效会话，生产必须填固定值。

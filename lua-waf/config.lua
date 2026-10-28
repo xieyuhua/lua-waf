@@ -13,7 +13,7 @@ local _M = {
     --   file  = 直接追加写本地日志文件（默认，兼容 1.x）
     --   mysql = 内存共享队列缓冲，定时批量异步写 MySQL（高并发，推荐）
     --   redis = Redis 列表缓冲，定时批量异步写 MySQL（多机汇聚 / 削峰）
-    config_log_mode = "file",
+    config_log_mode = "redis",
     -- 批量落库参数
     config_log_batch_size = 200,      -- 每轮最多落库条数
     config_log_flush_interval = 2,    -- 落库间隔（秒）

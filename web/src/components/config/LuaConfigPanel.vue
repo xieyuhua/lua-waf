@@ -21,6 +21,8 @@ import { luaApi } from '../../api/lua'
 const loading = ref(true)
 const saving = ref(false)
 const reloading = ref(false)
+// 是否正在测试 Redis / MySQL 连通性
+const testing = ref(false)
 const rawVisible = ref(false)
 const rawContent = ref('')
 
@@ -72,7 +74,16 @@ function collect() {
   for (const group of groups.value) {
     for (const item of group.items) {
       const value = form[item.key]
-      values[item.key] = item.type === 'switch' ? (value ? 'on' : 'off') : value
+      if (item.type === 'switch') {
+        values[item.key] = value ? 'on' : 'off'
+        continue
+      }
+      // 数字控件绑定的是 number，统一转成字符串再提交（后端按字符串写回 config.lua）
+      if (item.type === 'number') {
+        values[item.key] = value === null || value === undefined ? '' : String(value)
+        continue
+      }
+      values[item.key] = value === null || value === undefined ? '' : String(value)
     }
   }
   return values
@@ -95,6 +106,34 @@ async function save(reload = false) {
   } finally {
     saving.value = false
     reloading.value = false
+  }
+}
+
+/** 测试 Redis / MySQL 连通性（用表单当前值，可测未保存的配置） */
+async function testConnections() {
+  testing.value = true
+  try {
+    const result = await luaApi.test(collect())
+    const lines = []
+    if (result?.redis) {
+      lines.push(`Redis ${result.redis.address}：${result.redis.ok ? '✔ ' : '✘ '}${result.redis.message}`)
+    }
+    if (result?.mysql) {
+      lines.push(`MySQL ${result.mysql.address}：${result.mysql.ok ? '✔ ' : '✘ '}${result.mysql.message}`)
+    }
+    if (!lines.length) {
+      lines.push('未配置 Redis / MySQL 地址，无需测试')
+    }
+
+    const failed = (result?.redis && !result.redis.ok) || (result?.mysql && !result.mysql.ok)
+    ElMessageBox.alert(lines.join('\n'), failed ? '连接测试未通过' : '连接测试通过', {
+      type: failed ? 'error' : 'success',
+      confirmButtonText: '知道了'
+    })
+  } catch (error) {
+    ElMessage.error(error.message || '测试连接失败')
+  } finally {
+    testing.value = false
   }
 }
 
@@ -141,6 +180,7 @@ onMounted(load)
         openresty 侧的 config.lua；保存后点「保存并生效」执行 nginx -t 与 reload
       </p>
       <div class="panel-actions">
+        <el-button :loading="testing" @click="testConnections"><el-icon><Connection /></el-icon> 测试连接</el-button>
         <el-button text :disabled="!meta.exists" @click="viewRaw"><el-icon><Document /></el-icon> 查看原文</el-button>
         <el-button :loading="reloading" @click="reloadOnly"><el-icon><RefreshRight /></el-icon> 仅 reload</el-button>
         <el-button :disabled="!meta.exists || !dirty" :loading="saving" @click="save(false)">

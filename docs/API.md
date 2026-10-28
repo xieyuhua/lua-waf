@@ -93,10 +93,25 @@
 | GET | `/api/lua/config` | 按模块分组的配置项（密钥脱敏，含 `detected` 标记） |
 | PUT | `/api/lua/config` | 保存：`{ "values": { "config_xxx": "值" } }`，只提交变化的项 |
 | GET | `/api/lua/config/raw` | config.lua 原文 |
+| POST | `/api/lua/config/test` | **保存前连通性自检**：用表单当前值测试 Redis / MySQL（返回 `redis`/`mysql` 各自的 `ok`、`latency_ms`、`message`） |
 | POST | `/api/lua/reload` | 执行 `nginx -t && nginx -s reload` |
 
 控件类型：`switch` / `number` / `text` / `select` / `secret` / `code`（多行模板，如拦截页 HTML）。
 `code` 类型内容不能包含 `]]`（会破坏 Lua 长字符串）。
+
+`values` 的每个值可以是字符串、数字或布尔（前端数字控件提交 number、开关提交 `on`/`off`），
+后端会统一转成字符串写回 config.lua；服务端会拒绝未在 schema 中声明的键。
+
+**测试连接返回示例**：
+
+```json
+{ "redis": { "target": "redis", "address": "127.0.0.1:6379", "ok": true, "latency_ms": 3,
+             "message": "PING 成功，耗时 3ms（库 0）" },
+  "mysql": { "target": "mysql", "address": "192.168.2.6:3306/waf", "ok": false, "latency_ms": 3001,
+             "message": "连接失败：192.168.2.6:3306 连接超时，检查网络/防火墙/地址是否正确" } }
+```
+
+未配置 `config_redis_host` / `config_mysql_host` 的目标不会出现在结果里；口令传掩码 `****` 时会用已保存的值。
 
 ---
 
