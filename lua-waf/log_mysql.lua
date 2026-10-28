@@ -9,7 +9,11 @@
 ]]
 
 local config = require("config")
-local mysql = require("resty.mysql")
+-- 运行时加载：缺库时返回可读错误（log_sink 会回落写文件，不丢日志）
+local ok_require, mysql = pcall(require, "resty.mysql")
+if not ok_require or mysql == nil then
+    mysql = nil
+end
 
 local _M = {}
 
@@ -18,6 +22,10 @@ local COLUMNS = "client_ip, local_time, server_name, user_agent, attack_type, re
 
 -- 建立连接（带超时与连接池）
 function _M.connect()
+    if mysql == nil then
+        return nil, "未安装 lua-resty-mysql；建议改用 redis 模式（config_log_mode = \"redis\" + 后台消费）"
+    end
+
     local db, err = mysql:new()
     if not db then
         return nil, err or "无法创建 mysql 连接"

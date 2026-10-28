@@ -9,7 +9,17 @@
 ]]
 
 local config = require("config")
+-- 运行时加载 Redis 客户端：优先用环境里的 lua-resty-redis，
+-- 没有则回落到内置实现 lua-waf/lib/resty/redis.lua（需把 lib 加进 lua_package_path）
 local redis = require("resty.redis")
+if redis == nil then
+    return {
+        connect = function() return nil, "缺少 resty.redis" end,
+        push = function() return false, "缺少 resty.redis" end,
+        drain = function() return nil, "缺少 resty.redis" end,
+        length = function() return nil, "缺少 resty.redis" end
+    }
+end
 local cjson = require("cjson.safe")
 
 local _M = {}

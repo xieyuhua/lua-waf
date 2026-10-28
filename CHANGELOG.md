@@ -81,6 +81,19 @@
   WAF 配置页工具条新增按钮，保存前即可确认地址/口令是否可用；错误信息按类型翻译
   （拒绝连接 / 超时 / 域名解析失败 / Access denied / Unknown database / Redis 口令错误），口令支持掩码复用已保存值。
 
+### 新增（lua 侧依赖内置，缺库不再「哑失败」）
+
+- **内置零依赖依赖库** `lua-waf/lib/resty/`：
+  `redis.lua`（RESP 客户端，支持 new/connect/auth/select/ping/rpush/lpush/lpop/rpop/llen/lrange/
+  set/get/setex/incr/expire/del/exists/set_keepalive，接口与官方 lua-resty-redis 同名同参）、
+  `lrucache.lua`（IP 归属地缓存用）、`mysql.lua`（占位实现，缺库时返回可读错误并提示改 redis 模式）。
+  通过 `lua_package_path "/www/server/nginx/x-waf/lib/?.lua;…"` 引入，无需编译、无需 opm。
+- `log_redis.lua` / `log_mysql.lua` 改为**运行时加载依赖**：缺库时返回可读错误而不是抛 Lua 异常，
+  log_sink 仍会回落写文件（不丢日志），error.log 里能直接看到原因与解决建议。
+- `nginx.conf` 示例合并为单条 `lua_package_path`（含 lib 路径），避免重复指令导致 `nginx -t` 失败。
+- 用 fengari 对内置 redis 客户端做了行为验证（模拟 ngx.socket.tcp）：PING→PONG、AUTH 错误透传、
+  RPUSH→:123、LLEN→:5、LPOP→bulk string、连接断开返回 nil+错误。
+
 ### 改进（自检判据更准）
 
 - 「生效自检」在 `config_redis_consume = on` 时不再把队列长度 0 当作异常（nginx 自己消费，长度本就接近 0），

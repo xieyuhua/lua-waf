@@ -47,6 +47,29 @@ access_by_lua_block { waf.check() }
 
 4. `nginx -t && nginx -s reload`。
 
+## 2.3 lua 侧依赖（需要哪些库）
+
+WAF 的 lua 代码只依赖 openresty 自带的 `ngx.*`，外加三个 `resty.*` 库：
+
+| 库 | 用途 | 缺失时的表现 | 解决 |
+|---|---|---|---|
+| `resty.redis` | redis 日志模式写队列 | `log_sink` 回落写文件 + error.log 出现「Redis 队列写入失败: module 'resty.redis' not found」 | **已内置** `lua-waf/lib/resty/redis.lua`（纯 Lua，无需编译） |
+| `resty.lrucache` | IP 归属地缓存 | 归属地解析变慢 / 报错 | **已内置** `lua-waf/lib/resty/lrucache.lua` |
+| `resty.mysql` | nginx 直连 MySQL 落库 | `mysql` 模式不可用 | **未内置**（协议复杂）。推荐改用 redis 模式 + 后台消费；或 `opm get openresty/lua-resty-mysql` |
+
+内置库的引入方式（`lua_package_path` 加上 `lib/`，且放在最前面）：
+
+```nginx
+lua_package_path "/www/server/nginx/x-waf/lib/?.lua;/www/server/nginx/x-waf/?.lua;;";
+```
+
+> 如果你的机器上已装官方 lua-resty-redis，并希望优先用它，把 `/usr/local/openresty/lualib/?.lua`
+> 放到 `lib/` 之前即可；两者接口同名同参，可互换。
+
+**为什么推荐 redis 模式而不是 nginx 直连 MySQL**：nginx 直连库会在流量高峰把数据库压力带进
+worker（即使异步也需要维护连接池与重试），而 redis 模式把落库交给后台 `wafadmin` 批量写入，
+既能削峰，也能在后台看到队列长度、失败数等可观测指标。
+
 ## 3. 日常操作
 
 | 场景 | 操作 |
