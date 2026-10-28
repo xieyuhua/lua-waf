@@ -76,6 +76,15 @@ func (s *RulePipelineService) Pipeline(ctx context.Context) (*RulePipeline, erro
 		},
 		{
 			Order:    5,
+			Name:     "header_attack_check",
+			Title:    "请求头检测",
+			Action:   "deny",
+			RuleFile: "header.rule",
+			Switch:   "config_header_check",
+			Desc:     "遍历全部请求头：Host 注入（Host 带 ../ ; $ < >）、X-Forwarded-For/X-Real-IP 伪造内网地址绕过黑白名单、头部里的 Log4Shell（${jndi:）、多级 XFF 堆叠、Referer 里的 javascript:/<script>、X-Original-URL 穿越、CRLF 头注入等。",
+		},
+		{
+			Order:    6,
 			Name:     "user_agent_attack_check",
 			Title:    "User-Agent 检测",
 			Action:   "inspect",
@@ -84,7 +93,7 @@ func (s *RulePipelineService) Pipeline(ctx context.Context) (*RulePipeline, erro
 			Desc:     "扫描器、漏洞利用工具、脚本化客户端 UA 命中即拦截；放在 URL 检测之前，可以先挡掉无意义的扫描流量。",
 		},
 		{
-			Order:    6,
+			Order:    7,
 			Name:     "white_url_check",
 			Title:    "URL 白名单",
 			Action:   "allow",
@@ -93,7 +102,7 @@ func (s *RulePipelineService) Pipeline(ctx context.Context) (*RulePipeline, erro
 			Desc:     "URL 命中白名单直接放行，跳过后续 URL/参数/请求体检测（IP 白名单与封禁检查仍然优先）。",
 		},
 		{
-			Order:    7,
+			Order:    8,
 			Name:     "url_attack_check",
 			Title:    "URL 检测",
 			Action:   "inspect",
@@ -110,7 +119,7 @@ func (s *RulePipelineService) Pipeline(ctx context.Context) (*RulePipeline, erro
 			Desc:   "按「IP + URI」在时间窗口内计数，超过 config_cc_rate（如 300/60）即判定 CC 攻击，可联动自动封禁。",
 		},
 		{
-			Order:    9,
+			Order:    10,
 			Name:     "cookie_attack_check",
 			Title:    "Cookie 检测",
 			Action:   "inspect",
@@ -119,7 +128,7 @@ func (s *RulePipelineService) Pipeline(ctx context.Context) (*RulePipeline, erro
 			Desc:     "Cookie 中的 SQL 注入、XSS、Shiro rememberMe、Java 序列化（rO0AB）等特征。",
 		},
 		{
-			Order:    10,
+			Order:    11,
 			Name:     "url_args_attack_check",
 			Title:    "GET 参数检测",
 			Action:   "inspect",
@@ -128,7 +137,7 @@ func (s *RulePipelineService) Pipeline(ctx context.Context) (*RulePipeline, erro
 			Desc:     "对解码后的查询串做正则匹配（SQL 注入、命令执行、SSRF、SSTI、Log4Shell、原型链等）。",
 		},
 		{
-			Order:    11,
+			Order:    12,
 			Name:     "post_attack_check",
 			Title:    "请求体检测",
 			Action:   "inspect",
@@ -136,6 +145,11 @@ func (s *RulePipelineService) Pipeline(ctx context.Context) (*RulePipeline, erro
 			Switch:   "config_post_check / config_post_multipart_check / config_post_max_size",
 			Desc:     "读取请求体（超过 config_post_max_size 只按流式/分段检测），对表单、JSON、multipart 分段内容做同样的正则匹配。",
 		},
+	}
+
+	// 顺序以切片顺序为准，避免手工维护序号出错
+	for i := range steps {
+		steps[i].Order = i + 1
 	}
 
 	notes := []string{

@@ -52,6 +52,9 @@ config_redis_consume = "on",
     config_user_agent_check = "on",
     -- enable/disable cookie deny filtering
     config_cookie_check = "on",
+
+-- 请求头检测（Host 注入 / 代理头伪造 / 头部 JNDI / 头内注入），规则文件 header.rule
+config_header_check = "on",
     -- enable/disable cc filtering
     config_cc_check = "on",
     -- cc rate the xxx of xxx seconds

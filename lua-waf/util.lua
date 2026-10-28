@@ -257,4 +257,43 @@ function _M.set_bad_guys(bad_guy_ip, expire_time)
     end
 end
 
+-- 归一化可疑输入：多轮 URL 解码 + %uXXXX + HTML 实体 + 去除 SQL 注释，便于规则匹配
+-- 目的：抵御双重编码、大小写/注释插入等绕过手法
+function _M.normalize(text)
+    if text == nil or type(text) ~= "string" or text == "" then
+        return ""
+    end
+
+    local out = text
+
+    -- 最多解码 3 轮，兼容 %252e%252e 之类的双重/三重编码
+    for _ = 1, 3 do
+        local decoded = ngx.unescape_uri(out)
+        if decoded == nil or decoded == out then
+            break
+        end
+        out = decoded
+    end
+
+    -- %uXXXX（IIS/旧版 Tomcat 风格）
+    out = ngx.re.gsub(out, [[%u([0-9a-fA-F]{4})]], function(m)
+        return string.char(tonumber(m[1], 16) % 256)
+    end, "jo")
+
+    -- HTML 实体
+    out = ngx.re.gsub(out, [[&#x([0-9a-fA-F]+);]], function(m)
+        return string.char(tonumber(m[1], 16) % 256)
+    end, "jo")
+    out = ngx.re.gsub(out, [[&#([0-9]+);]], function(m)
+        return string.char(tonumber(m[1], 10) % 256)
+    end, "jo")
+    out = out:gsub("&lt;", "<"):gsub("&gt;", ">"):gsub("&quot;", '"'):gsub("&apos;", "'"):gsub("&amp;", "&")
+
+    -- 去掉 SQL 注释标记，避免 /*!50000select*/ 之类绕过
+    out = ngx.re.gsub(out, [[/\*![0-9]*]], "", "jo")
+    out = ngx.re.gsub(out, [[/\*.*?\*/]], "", "jo")
+
+    return out
+end
+
 return _M

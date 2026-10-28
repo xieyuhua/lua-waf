@@ -94,7 +94,7 @@ function _M.white_url_check()
         local REQ_URI = ngx.var.request_uri
         if URL_WHITE_RULES ~= nil then
             for _, rule in pairs(URL_WHITE_RULES) do
-                if rule ~= "" and rulematch(REQ_URI, rule, "joi") then
+                if rule ~= "" and (rulematch(REQ_URI, rule, "joi") or rulematch(util.normalize(REQ_URI), rule, "joi")) then
                     return true
                 end
             end
@@ -128,6 +128,37 @@ function _M.cc_attack_check()
     return false
 end
 
+-- deny header attack（Host 注入 / 代理头伪造 / 头部 JNDI / 头内注入）
+function _M.header_attack_check()
+    if config.config_header_check == "on" then
+        local HEADER_RULES = _M.get_rule('header.rule')
+        if HEADER_RULES == nil then
+            return false
+        end
+
+        local headers = ngx.req.get_headers(0, true)
+        for name, value in pairs(headers) do
+            local values = value
+            if type(value) ~= "table" then
+                values = { value }
+            end
+            for _, single in pairs(values) do
+                local line = name .. ": " .. tostring(single)
+                local normalized = util.normalize(line)
+                for _, rule in pairs(HEADER_RULES) do
+                    if rule ~= "" and (rulematch(line, rule, "joi") or rulematch(normalized, rule, "joi")) then
+                        util.log_record(config.config_log_dir, '请求头攻击', ngx.var.request_uri, name, rule)
+                        if config.config_waf_enable == "on" then
+                            util.waf_output()
+                            return true
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return false
+end
 -- deny cookie
 function _M.cookie_attack_check()
     if config.config_cookie_check == "on" then
@@ -135,7 +166,7 @@ function _M.cookie_attack_check()
         local USER_COOKIE = ngx.var.http_cookie
         if USER_COOKIE ~= nil then
             for _, rule in pairs(COOKIE_RULES) do
-                if rule ~= "" and rulematch(USER_COOKIE, rule, "joi") then
+                if rule ~= "" and (rulematch(USER_COOKIE, rule, "joi") or rulematch(util.normalize(USER_COOKIE), rule, "joi")) then
                     util.log_record(config.config_log_dir, 'Cookie攻击', ngx.var.request_uri, "-", rule)
                     if config.config_waf_enable == "on" then
                         util.waf_output()
@@ -154,7 +185,7 @@ function _M.url_attack_check()
         local URL_RULES = _M.get_rule('url.rule')
         local REQ_URI = ngx.var.request_uri
         for _, rule in pairs(URL_RULES) do
-            if rule ~= "" and rulematch(REQ_URI, rule, "joi") then
+            if rule ~= "" and (rulematch(REQ_URI, rule, "joi") or rulematch(util.normalize(REQ_URI), rule, "joi")) then
                 util.log_record(config.config_log_dir, '黑名单url', REQ_URI, "-", rule)
                 if config.config_waf_enable == "on" then
                     util.waf_output()
@@ -180,7 +211,7 @@ function _M.url_args_attack_check()
                     ARGS_DATA = val
                 end
                 
-                if ARGS_DATA and type(ARGS_DATA) ~= "boolean" and rule ~= "" and rulematch(unescape(ARGS_DATA), rule, "joi") then
+                if ARGS_DATA and type(ARGS_DATA) ~= "boolean" and rule ~= "" and rulematch(util.normalize(unescape(ARGS_DATA)), rule, "joi") then
                     util.log_record(config.config_log_dir, 'get参数攻击', ngx.var.request_uri, "-", rule)
                     if config.config_waf_enable == "on" then
                         util.waf_output()
@@ -274,6 +305,7 @@ function _M.check()
     elseif _M.ban_check() then
     elseif _M.malformed_request_check() then
     elseif _M.black_ip_check() then
+    elseif _M.header_attack_check() then
     elseif _M.user_agent_attack_check() then
     elseif _M.white_url_check() then
     elseif _M.url_attack_check() then

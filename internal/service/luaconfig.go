@@ -121,6 +121,7 @@ func (s *LuaConfigService) fields() []luaField {
 		{Key: "config_url_args_check", Label: "GET 参数检测", Type: luaTypeSwitch, Group: groupCheck},
 		{Key: "config_user_agent_check", Label: "User-Agent 检测", Type: luaTypeSwitch, Group: groupCheck},
 		{Key: "config_cookie_check", Label: "Cookie 检测", Type: luaTypeSwitch, Group: groupCheck},
+		{Key: "config_header_check", Label: "请求头检测", Type: luaTypeSwitch, Group: groupCheck, Desc: "Host 注入、代理头伪造、头部 JNDI、头内注入（规则文件 header.rule）"},
 		{Key: "config_cc_check", Label: "CC 频率检测", Type: luaTypeSwitch, Group: groupCheck},
 		{Key: "config_ipcc_check", Label: "IP 频率检测", Type: luaTypeSwitch, Group: groupCheck},
 		{Key: "config_post_check", Label: "请求体检测", Type: luaTypeSwitch, Group: groupCheck},
