@@ -122,6 +122,10 @@
 
 把 `RULE_PATH` 下的 `*.rule` 与数据库规则**取并集**：文件里有、库里没有的新增；库里已有的保持原样（不覆盖、不删除）。
 返回 `{ dir, files, in_files, added, kept, skipped, message }`。目录不存在时不算错误，仅在 `message` 中提示。
+
+扫描目录：`RULE_PATH`（nginx 侧）与 `RULE_IMPORT_DIR`（本机/本仓库，默认 `lua-waf/rules`，支持
+环境变量 `WAF_RULE_IMPORT_DIR`）都会扫描并**合并**，跨目录重复的规则只算一次；
+两个目录都不可读时返回提示而非报错。
 启动时也会自动执行一次（`日志/规则` 加载阶段），因此运维直接在服务器上新增规则文件后重启即可带入后台。
 
 ### GET /api/logs?range=today|all
@@ -353,6 +357,10 @@
 
 把 `RULE_PATH` 下的 `*.rule` 与数据库规则**取并集**：文件里有、库里没有的新增；库里已有的保持原样（不覆盖、不删除）。
 返回 `{ dir, files, in_files, added, kept, skipped, message }`。目录不存在时不算错误，仅在 `message` 中提示。
+
+扫描目录：`RULE_PATH`（nginx 侧）与 `RULE_IMPORT_DIR`（本机/本仓库，默认 `lua-waf/rules`，支持
+环境变量 `WAF_RULE_IMPORT_DIR`）都会扫描并**合并**，跨目录重复的规则只算一次；
+两个目录都不可读时返回提示而非报错。
 启动时也会自动执行一次（`日志/规则` 加载阶段），因此运维直接在服务器上新增规则文件后重启即可带入后台。
 
 ### GET /api/logs

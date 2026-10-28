@@ -128,6 +128,8 @@ func New(opts Options) (*App, error) {
 		log.Printf("[warn] 规则文件同步失败: %v", err)
 	} else if result.Added > 0 {
 		log.Printf("[info] 规则文件同步：新增 %d 条，保留 %d 条（目录 %s）", result.Added, result.Kept, result.Dir)
+	} else {
+		log.Printf("[info] 规则文件同步：%s（目录 %s，文件 %d 个）", result.Message, result.Dir, result.Files)
 	}
 
 	// lua-waf config.lua 在线编辑：保存后可用 nginx reload 生效
