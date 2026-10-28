@@ -11,6 +11,7 @@ const router = useRouter()
 
 const loading = ref(false)
 const syncing = ref(false)
+const syncingFiles = ref(false)
 const rows = ref([])
 const keyword = ref('')
 
@@ -27,6 +28,19 @@ const currentType = computed(() => ruleStore.find(currentKey.value) || { name: c
 const ruleGroups = computed(() => ruleStore.grouped())
 
 /** 加载当前类型的规则 */
+// WAF 检测与拦截顺序（只读说明，来源于后端 /api/rules/pipeline）
+const pipeline = ref(null)
+const pipelineExpanded = ref(true)
+
+/** 加载检测顺序说明 */
+async function loadPipeline() {
+  try {
+    pipeline.value = await ruleApi.pipeline()
+  } catch (error) {
+    /* 说明信息不可用不影响规则编辑 */
+  }
+}
+
 async function load() {
   loading.value = true
   try {
@@ -55,6 +69,24 @@ function openEdit(row) {
   form.rule_item = row.rule_item
   warning.value = ''
   dialogVisible.value = true
+}
+
+/** 从规则文件同步：与数据库取并集（缺少的新增，已有的保留不变） */
+async function syncFromFiles() {
+  syncingFiles.value = true
+  try {
+    const result = await ruleApi.syncFiles()
+    const parts = [`新增 ${result.added} 条`, `保留 ${result.kept} 条`]
+    if (result.skipped) parts.push(`跳过 ${result.skipped} 条`)
+    ElMessage.success(`规则文件同步完成：${parts.join('，')}`)
+    if (result.message) ElMessage.info(result.message)
+    await load()
+    await loadTypes()
+  } catch (error) {
+    ElMessage.error(error.message || '同步失败')
+  } finally {
+    syncingFiles.value = false
+  }
 }
 
 /** 校验正则表达式 */
@@ -137,6 +169,7 @@ watch(currentKey, () => {
 onMounted(async () => {
   await ruleStore.load()
   load()
+  loadPipeline()
 })
 </script>
 
@@ -148,11 +181,51 @@ onMounted(async () => {
         <p class="waf-page-sub">{{ currentType.desc }} · 规则文件 <code class="waf-mono">{{ currentType.file }}</code></p>
       </div>
       <div style="display: flex; gap: 10px">
-        <el-button :loading="syncing" @click="sync"><el-icon><Upload /></el-icon> 下发全部规则</el-button>
+        <el-button :loading="syncingFiles" @click="syncFromFiles"><el-icon><Refresh /></el-icon> 从规则文件同步</el-button>
+      <el-button :loading="syncing" @click="sync"><el-icon><Upload /></el-icon> 下发全部规则</el-button>
         <el-button type="primary" @click="openCreate"><el-icon><Plus /></el-icon> 新增规则</el-button>
       </div>
     </div>
 
+    <!-- WAF 检测与拦截顺序（只读说明） -->
+    <div v-if="pipeline" class="waf-card" style="margin-bottom: 16px">
+      <div class="waf-card-head">
+        <div class="waf-card-title"><span class="bar"></span> 检测与拦截顺序</div>
+        <div style="display: flex; align-items: center; gap: 10px">
+          <span class="waf-muted" style="font-size: 11.5px">与 lua-waf/waf.lua 的 check() 一致</span>
+          <el-button text size="small" @click="pipelineExpanded = !pipelineExpanded">
+            {{ pipelineExpanded ? '收起' : '展开' }}
+          </el-button>
+        </div>
+      </div>
+
+      <div v-show="pipelineExpanded">
+        <div class="pipeline-list">
+          <div v-for="step in pipeline.steps" :key="step.order" class="pipeline-item">
+            <span class="pipeline-order">{{ step.order }}</span>
+            <div class="pipeline-main">
+              <div class="pipeline-title">
+                {{ step.title }}
+                <el-tag
+                  size="small"
+                  :type="step.action === 'allow' ? 'success' : step.action === 'deny' ? 'danger' : 'warning'"
+                  effect="light"
+                >
+                  {{ step.action === 'allow' ? '放行' : step.action === 'deny' ? '拦截' : '检测' }}
+                </el-tag>
+                <code v-if="step.rule_file" class="waf-mono pipeline-file">{{ step.rule_file }}</code>
+                <code v-if="step.switch" class="waf-mono pipeline-switch">{{ step.switch }}</code>
+              </div>
+              <div class="pipeline-desc">{{ step.desc }}</div>
+            </div>
+          </div>
+        </div>
+
+        <ul class="pipeline-notes">
+          <li v-for="(note, index) in pipeline.notes" :key="index">{{ note }}</li>
+        </ul>
+      </div>
+    </div>
     <!-- 规则类型切换（等同侧边栏子菜单） -->
     <div class="waf-card" style="padding: 12px 14px; margin-bottom: 16px">
       <div class="type-chips">
@@ -226,6 +299,72 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.pipeline-list {
+  display: grid;
+  gap: 8px;
+}
+
+.pipeline-item {
+  display: flex;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--waf-border);
+  border-radius: 10px;
+  background: var(--waf-surface-2);
+}
+
+.pipeline-order {
+  flex: 0 0 22px;
+  height: 22px;
+  line-height: 22px;
+  text-align: center;
+  border-radius: 50%;
+  background: var(--waf-primary);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.pipeline-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.pipeline-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--waf-text);
+}
+
+.pipeline-file,
+.pipeline-switch {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--waf-text-muted);
+  background: var(--waf-surface);
+  border: 1px solid var(--waf-border);
+  border-radius: 6px;
+  padding: 1px 6px;
+}
+
+.pipeline-desc {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--waf-text-muted);
+}
+
+.pipeline-notes {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--waf-text-muted);
+}
 .rule-text {
   background: var(--waf-surface-2);
   border: 1px solid var(--waf-border);

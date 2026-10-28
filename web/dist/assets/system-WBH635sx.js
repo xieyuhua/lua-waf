@@ -1,0 +1,1 @@
+import{d as s}from"./index-B9sfRQTE.js";const o={info:()=>s.get("/system/info"),config:()=>s.get("/system/config"),saveConfig:t=>s.put("/system/config",t),rawConfig:()=>s.get("/system/config/raw"),reloadConfig:()=>s.post("/system/config/reload"),ingest:()=>s.get("/system/ingest")};export{o as s};

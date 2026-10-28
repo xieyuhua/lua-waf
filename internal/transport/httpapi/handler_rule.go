@@ -9,9 +9,15 @@ import (
 
 // RuleHandler 处理 WAF 规则的增删改查与下发。
 type RuleHandler struct {
-	Rules  *service.RuleService
-	Sync   *service.SyncService
-	Writer response.Writer
+	Rules *service.RuleService
+	Sync  *service.SyncService
+	// RuleSync 负责规则文件与数据库取并集。
+	RuleSync *service.RuleFileSync
+	// RuleDir 为规则目录。
+	RuleDir string
+	// Pipeline 提供检测顺序说明。
+	Pipeline *service.RulePipelineService
+	Writer   response.Writer
 	Responder
 }
 
@@ -19,6 +25,8 @@ type RuleHandler struct {
 func (h *RuleHandler) Register(mux *http.ServeMux, routes Routes) {
 	mux.HandleFunc("GET /api/rules/types", routes.Private(h.types))
 	mux.HandleFunc("GET /api/rules", routes.Private(h.list))
+	mux.HandleFunc("GET /api/rules/pipeline", routes.Private(h.pipeline))
+	mux.HandleFunc("POST /api/rules/sync-files", routes.Private(h.syncFiles))
 	mux.HandleFunc("POST /api/rules", routes.Private(h.create))
 	mux.HandleFunc("PUT /api/rules/{id}", routes.Private(h.update))
 	mux.HandleFunc("DELETE /api/rules/{id}", routes.Private(h.remove))
@@ -119,4 +127,24 @@ func (h *RuleHandler) syncAll(w http.ResponseWriter, r *http.Request) {
 		payload.Message = pushErr.Error()
 	}
 	h.Data(w, payload)
+}
+
+// syncFiles 把规则目录与数据库规则取并集：缺少的新增，已有的保持不动。
+func (h *RuleHandler) syncFiles(w http.ResponseWriter, r *http.Request) {
+	result, err := h.RuleSync.SyncFromDir(r.Context(), h.RuleDir)
+	if err != nil {
+		h.Error(w, err)
+		return
+	}
+	h.Data(w, result)
+}
+
+// pipeline 返回 WAF 检测与拦截顺序（只读说明）。
+func (h *RuleHandler) pipeline(w http.ResponseWriter, r *http.Request) {
+	result, err := h.Pipeline.Pipeline(r.Context())
+	if err != nil {
+		h.Error(w, err)
+		return
+	}
+	h.Data(w, result)
 }

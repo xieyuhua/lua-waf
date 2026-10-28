@@ -95,6 +95,17 @@
 `points[].name / lat / lon` 按 IP 归属地解析（城市 → 省/州 → 国家三层匹配），
 因此同一国家不同城市会分别落点。
 
+### GET /api/rules/pipeline
+
+返回 WAF 检测与拦截顺序（只读说明，顺序与 `lua-waf/waf.lua` 的 `check()` 一致）：
+每步包含 `order`、`title`、`action`（allow/deny/inspect）、`rule_file`、`switch`（config.lua 开关）、`desc`，另有 `notes` 说明串行/白名单优先级等要点。
+
+### POST /api/rules/sync-files
+
+把 `RULE_PATH` 下的 `*.rule` 与数据库规则**取并集**：文件里有、库里没有的新增；库里已有的保持原样（不覆盖、不删除）。
+返回 `{ dir, files, in_files, added, kept, skipped, message }`。目录不存在时不算错误，仅在 `message` 中提示。
+启动时也会自动执行一次（`日志/规则` 加载阶段），因此运维直接在服务器上新增规则文件后重启即可带入后台。
+
 ### GET /api/logs?range=today|all
 
 攻击地图大屏数据。
@@ -296,6 +307,17 @@
   "area": "中国-北京", "req_data": "id=1' AND 1=1 --", "rule_tag": "args->cc"
 }
 ```
+
+### GET /api/rules/pipeline
+
+返回 WAF 检测与拦截顺序（只读说明，顺序与 `lua-waf/waf.lua` 的 `check()` 一致）：
+每步包含 `order`、`title`、`action`（allow/deny/inspect）、`rule_file`、`switch`（config.lua 开关）、`desc`，另有 `notes` 说明串行/白名单优先级等要点。
+
+### POST /api/rules/sync-files
+
+把 `RULE_PATH` 下的 `*.rule` 与数据库规则**取并集**：文件里有、库里没有的新增；库里已有的保持原样（不覆盖、不删除）。
+返回 `{ dir, files, in_files, added, kept, skipped, message }`。目录不存在时不算错误，仅在 `message` 中提示。
+启动时也会自动执行一次（`日志/规则` 加载阶段），因此运维直接在服务器上新增规则文件后重启即可带入后台。
 
 ### GET /api/logs
 

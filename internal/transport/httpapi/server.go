@@ -29,6 +29,8 @@ type Deps struct {
 	SysConfig *service.SystemConfigService
 	LuaConfig *service.LuaConfigService
 	Ingest    *ingest.Consumer
+	RuleSync  *service.RuleFileSync
+	Pipeline  *service.RulePipelineService
 }
 
 // Routes 提供统一的中间件包装器，各 handler 按需使用。
