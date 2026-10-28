@@ -1,4 +1,19 @@
 <script setup>
+/**
+ * WAF 配置面板（config.lua 在线编辑）
+ *
+ * 数据流：
+ *   1. 进入页面 → GET /api/lua/config → 拿到按「模块」分组的配置项（groups[].items[]）
+ *   2. 表单状态 form 以 key 为索引平铺保存（form[item.key]），便于整体提交
+ *   3. 保存 → PUT /api/lua/config（只提交有变化的项；密钥类提交脱敏值表示不修改）
+ *   4. 保存成功后可选「保存并生效」→ POST /api/lua/reload 执行 nginx -t && reload
+ *
+ * 控件类型（由后端 schema 决定，见 internal/service/luaconfig_schema.go）：
+ *   switch=开关 / number=数字 / text=单行文本 / select=枚举 / secret=密钥 / code=多行模板
+ *
+ * 界面结构：模块选项卡（基础 / 检测开关 / 频率与请求体 / 自动封禁 / 目录 / 拦截页面 /
+ * 日志输出 / MySQL 落库 / Redis 队列 / 未纳入表单），选项卡内两列网格，code 类型占满整行。
+ */
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { luaApi } from '../../api/lua'
@@ -176,7 +191,7 @@ onMounted(load)
             </template>
 
           <div class="lua-fields lua-fields--grid">
-            <div v-for="item in group.items" :key="item.key" class="lua-field">
+            <div v-for="item in group.items" :key="item.key" class="lua-field" :class="{ 'is-wide': item.type === 'code' }">
               <div class="lua-label">
                 <span>{{ item.label }}</span>
                 <code class="lua-key">{{ item.key }}</code>
@@ -209,6 +224,16 @@ onMounted(load)
                 type="password"
                 show-password
                 placeholder="留空或保持脱敏值表示不修改"
+              />
+
+              <el-input
+                v-else-if="item.type === 'code'"
+                v-model="form[item.key]"
+                type="textarea"
+                :autosize="{ minRows: 12, maxRows: 28 }"
+                spellcheck="false"
+                class="lua-code"
+                placeholder="多行模板内容，不支持包含 ]]"
               />
 
               <el-input v-else v-model="form[item.key]" />
@@ -245,6 +270,16 @@ onMounted(load)
   gap: 14px;
 }
 
+.lua-field.is-wide {
+  grid-column: 1 / -1;
+}
+
+.lua-code :deep(textarea) {
+  font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+
 .lua-fields--grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px 24px;
@@ -252,7 +287,8 @@ onMounted(load)
 }
 
 @media (max-width: 900px) {
-  .lua-fields--grid {
+  
+.lua-fields--grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }
