@@ -85,10 +85,6 @@ func (w *Writer) apply(file *ini.File, cfg *Config) {
 	set("database", "SHOW_SQL", strconv.FormatBool(cfg.Database.ShowSQL))
 	set("database", "ADD_MISSING_COLUMNS", strconv.FormatBool(cfg.Database.AddMissingColumns))
 
-	set("apisix", "ENABLED", boolText(cfg.Apisix.Enabled))
-	set("apisix", "ADMIN_URL", cfg.Apisix.AdminURL)
-	set("apisix", "ADMIN_KEY", cfg.Apisix.AdminKey)
-	set("apisix", "TIMEOUT_MS", strconv.Itoa(cfg.Apisix.TimeoutMS))
 	set("log", "INGEST_ENABLED", boolText(cfg.LogIngest.Enabled))
 	set("waf", "MAP_TARGET", cfg.MapTarget)
 	set("waf", "LUA_CONFIG", cfg.LuaConfigPath)

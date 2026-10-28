@@ -56,12 +56,7 @@ export const routes = [
         component: () => import('../views/SlowSqlView.vue'),
         meta: { title: '慢 SQL 统计', crumb: '审计分析 / 慢 SQL' }
       },
-      {
-        path: 'apisix',
-        name: 'apisix',
-        component: () => import('../views/ApisixView.vue'),
-        meta: { title: 'APISIX 网关', crumb: '防护配置 / APISIX 网关' }
-      },
+
       {
         path: 'settings/system',
         name: 'system-config',

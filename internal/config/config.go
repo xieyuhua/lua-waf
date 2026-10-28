@@ -55,17 +55,6 @@ func (d Database) DSN() string {
 }
 
 // Config 是应用的全部可配置项。
-// ApisixConfig 是 APISIX 管理接口配置。
-type ApisixConfig struct {
-	// Enabled 表示是否启用（有 AdminURL 时自动视为启用）。
-	Enabled bool
-	// AdminURL 形如 http://127.0.0.1:9180/apisix/admin。
-	AdminURL string
-	// AdminKey 为 X-API-KEY。
-	AdminKey string
-	// TimeoutMS 为请求超时（毫秒）。
-	TimeoutMS int
-}
 
 // LogIngestConfig 是日志 Redis 消费者配置（lua 写 Redis，Go 批量写 MySQL）。
 type LogIngestConfig struct {
@@ -105,8 +94,6 @@ type Config struct {
 	LuaConfigPath string
 	// LogIngest 为「lua 写 Redis、Go 消费入库」的消费端配置。
 	LogIngest LogIngestConfig
-	// Apisix 为 APISIX 管理接口配置（插件下发：镜像复制 / key 限流）。
-	Apisix ApisixConfig
 
 	PageSize int
 
@@ -205,11 +192,7 @@ func (l *Loader) defaults() *Config {
 		WafLogDir:     "/www/wwwlogs/waf",
 		MapTarget:     "中国-北京",
 		LuaConfigPath: "/www/server/nginx/x-waf/config.lua",
-		Apisix: ApisixConfig{
-			Enabled:   false,
-			AdminURL:  "",
-			TimeoutMS: 10000,
-		},
+
 		LogIngest: LogIngestConfig{
 			Enabled: false,
 			Addr:    "127.0.0.1:6379",
@@ -252,14 +235,6 @@ func (l *Loader) applyINI(cfg *Config, file *ini.File) {
 
 	// 日志入库：lua 写 Redis，本进程消费后批量写 MySQL
 	logSection := file.Section("log")
-	apisixSection := file.Section("apisix")
-	cfg.Apisix.AdminURL = strings.TrimSpace(apisixSection.Key("ADMIN_URL").MustString(cfg.Apisix.AdminURL))
-	cfg.Apisix.AdminKey = strings.TrimSpace(apisixSection.Key("ADMIN_KEY").MustString(cfg.Apisix.AdminKey))
-	cfg.Apisix.TimeoutMS = apisixSection.Key("TIMEOUT_MS").MustInt(cfg.Apisix.TimeoutMS)
-	cfg.Apisix.Enabled = parseToggle(apisixSection.Key("ENABLED").MustString(boolText(cfg.Apisix.AdminURL != "")))
-	if cfg.Apisix.AdminURL == "" {
-		cfg.Apisix.Enabled = false
-	}
 
 	cfg.LogIngest.Enabled = parseToggle(logSection.Key("INGEST_ENABLED").MustString(boolText(cfg.LogIngest.Enabled)))
 	cfg.LogIngest.Addr = logSection.Key("REDIS_ADDR").MustString(cfg.LogIngest.Addr)
@@ -337,13 +312,7 @@ func (l *Loader) applyEnv(cfg *Config) {
 	if v := l.env("WAF_LUA_CONFIG"); v != "" {
 		cfg.LuaConfigPath = v
 	}
-	if v := l.env("WAF_APISIX_ADMIN_URL"); v != "" {
-		cfg.Apisix.AdminURL = v
-		cfg.Apisix.Enabled = true
-	}
-	if v := l.env("WAF_APISIX_ADMIN_KEY"); v != "" {
-		cfg.Apisix.AdminKey = v
-	}
+
 	if v := l.env("WAF_LOG_INGEST"); v != "" {
 		cfg.LogIngest.Enabled = parseToggle(v)
 	}

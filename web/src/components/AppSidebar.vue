@@ -40,7 +40,6 @@ const groups = [
     name: '防护配置',
     items: [
       { label: '站点管理', icon: 'Cloudy', to: '/sites' },
-      { label: 'APISIX 网关', icon: 'Share', to: '/apisix' },
       { label: 'WAF 规则', icon: 'Lock', to: '/rules', children: true },
       { label: '账号管理', icon: 'User', to: '/users' }
     ]

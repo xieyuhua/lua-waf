@@ -29,7 +29,6 @@ type Deps struct {
 	SysConfig *service.SystemConfigService
 	LuaConfig *service.LuaConfigService
 	Ingest    *ingest.Consumer
-	Apisix    *service.ApisixService
 }
 
 // Routes 提供统一的中间件包装器，各 handler 按需使用。
@@ -89,7 +88,6 @@ func (s *Server) register(mux *http.ServeMux) {
 	(&SystemHandler{Cfg: s.Cfg, Rules: s.Deps.Rules, Settings: s.Deps.Settings, FrontendVersion: s.frontendVersion(), Ingest: s.Deps.Ingest, Responder: Responder{Writer: s.Writer}}).Register(mux, routes)
 	(&SysConfigHandler{SysConfig: s.Deps.SysConfig, Writer: s.Writer, Responder: Responder{Writer: s.Writer}}).Register(mux, routes)
 	(&LuaConfigHandler{Lua: s.Deps.LuaConfig, Writer: s.Writer, Responder: Responder{Writer: s.Writer}}).Register(mux, routes)
-	(&ApisixHandler{Apisix: s.Deps.Apisix, Writer: s.Writer, Responder: Responder{Writer: s.Writer}}).Register(mux, routes)
 	(&SyncHandler{Sync: s.Deps.Sync, Sites: s.Deps.Sites, Rules: s.Deps.Rules, Writer: s.Writer}).Register(mux)
 
 	// 前端单页应用：未匹配到 API 的路径全部回落到 index.html
