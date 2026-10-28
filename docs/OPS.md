@@ -1,0 +1,154 @@
+# 部署与运维
+
+## 1. 环境要求
+
+| 组件 | 版本 / 说明 |
+|---|---|
+| Go | 1.24+（仅编译时需要） |
+| Node.js | 20+（仅在改前端时需要，`web/dist` 已随仓库提供） |
+| MySQL | 5.7 / 8.0，字符集 `utf8` |
+| openresty | 1.19+（带 lua-nginx-module），WAF 运行侧 |
+| Redis | 5.0+（可选，仅 `config_log_mode = "redis"` 时使用） |
+
+## 2. 首次部署
+
+### 2.1 管理台
+
+```bash
+# 编译（先建前端产物）
+cd web && npm install && npm run build && cd ..
+go build -o wafadmin .
+
+# 配置：至少改这几项
+#   [security] SESSION_SECRET = 32 位以上随机串   ← 否则重启掉登录
+#   [database] 账号/地址/库名
+#   [waf] LUA_CONFIG / RULE_PATH / RULE_IMPORT_DIR
+vi conf/app.ini
+
+# 启动（前台；生产用 systemd / supervisor 托管）
+./wafadmin -config conf/app.ini
+```
+
+首次启动会自动建表（表已存在时只补缺失列）。默认管理员由初始化逻辑写入，密码可用
+`./wafadmin reset-password -u <账号>` 重置。
+
+### 2.2 openresty 侧
+
+1. 把仓库里的 `lua-waf/` 拷到服务器（默认 `/www/server/nginx/x-waf/`）；
+2. 确认 `config.lua` 的 `config_rule_dir`、`config_log_dir` 与后台配置一致；
+3. 在 vhost 里挂载：
+
+```nginx
+lua_shared_dict limit 50m;          # CC / 自动封禁计数
+lua_package_path "/www/server/nginx/x-waf/?.lua;;";
+init_by_lua_block { waf = require "waf" }
+access_by_lua_block { waf.check() }
+```
+
+4. `nginx -t && nginx -s reload`。
+
+## 3. 日常操作
+
+| 场景 | 操作 |
+|---|---|
+| 改运行参数 | 系统设置 → 运行配置 → 保存（多数热更新；`HTTP_PORT` 等需重启进程） |
+| 改 WAF 配置 | 防护配置 → WAF 配置 → 保存 → 「仅 reload」或「保存并生效」 |
+| 加/改规则 | WAF 规则 → 编辑 → 「下发全部规则」→ openresty 侧 reload |
+| 规则文件在服务器上被改过 | WAF 规则 → 「从规则文件同步」（并集，不会覆盖库里已有规则） |
+| 停掉某条误报规则 | 防护分析 → 看样例 → 停用 → 下发 → reload |
+| 切换日志入库方式 | 见 README 5.2；切换后记得「保存并生效」并重启管理台（`[log] INGEST_ENABLED`） |
+
+## 4. 日志入库链路运维
+
+### 4.1 Redis + 后台消费（推荐）
+
+```ini
+[log]
+INGEST_ENABLED = on
+REDIS_ADDR = 127.0.0.1:6379
+REDIS_LIST_KEY = waf:logs
+INGEST_BATCH = 200
+INGEST_BLOCK_MS = 2000
+```
+
+```lua
+-- config.lua
+config_log_mode = "redis",
+config_redis_consume = "off",   -- 关键：不要和 nginx 抢消费
+config_redis_list_key = "waf:logs",
+```
+
+看板「日志入库队列」卡片每 10 秒刷新：
+
+| 指标 | 正常表现 | 异常含义 |
+|---|---|---|
+| 待处理（`LLEN waf:logs`） | 稳态接近 0，攻击高峰短暂上升 | 持续增长 = 消费跟不上（加大 `INGEST_BATCH` 或扩容） |
+| 处理中（`waf:logs:processing`） | 应贴近 0 | 长期 > 0 = MySQL 写入失败，看「最近错误」 |
+| 失败 / 丢弃 | 0 | > 0 说明有坏数据（JSON 解析失败）或写库异常 |
+| 最近入库时间 | 每批更新 | 长时间不更新 = 消费者没跑（检查启动日志与 `enabled`） |
+
+Redis 建议：开启 AOF（`appendonly yes`），内存策略设为 `noeviction`（避免队列被淘汰丢日志）。
+
+### 4.2 消费者没生效的排查
+
+```bash
+# 1) 看启动日志
+[info] 日志入库消费者已启用：127.0.0.1:6379 <- waf:logs（批量 200）
+[info] 日志入库消费者已启动：source=waf:logs batch=200
+# 2) 环境变量是否覆盖了 ini
+echo $WAF_LOG_INGEST
+# 3) 接口直接看状态
+curl -s 'http://127.0.0.1:5002/api/system/ingest'
+```
+
+## 5. 升级与回滚
+
+```bash
+# 升级
+systemctl stop wafadmin
+git pull && (cd web && npm run build) && go build -o wafadmin .
+systemctl start wafadmin          # 自动补缺失列，不动已有数据
+
+# 回滚
+systemctl stop wafadmin
+git checkout <上一个提交> && go build -o wafadmin .
+systemctl start wafadmin
+```
+
+配置文件回滚：
+
+- `conf/app.ini` → 后台「查看原文」可复制；建议改动前 `cp conf/app.ini conf/app.ini.bak`
+- `lua-waf/config.lua` → 后台每次保存都会生成 `config.lua.bak`，直接 `cp config.lua.bak config.lua` 即可回滚
+- 规则文件 → 每次「下发全部规则」前建议备份 `RULE_PATH` 目录
+
+## 6. 常见问题（FAQ）
+
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| 重启后要重新登录 | `[security] SESSION_SECRET` 为空 → 每次随机 | 填固定值并重启 |
+| 登录提示验证码错误 | 验证码 5 分钟过期 / 后端时间漂移 | 刷新验证码；校对服务器时间 |
+| 「从规则文件同步」提示目录不可读 | 后台机器没有 nginx 规则目录 | 配 `[waf] RULE_IMPORT_DIR = lua-waf/rules` |
+| 同步后某些规则显示但线上不生效 | 只同步了数据库，没下发+reload | 点「下发全部规则」→ `nginx -s reload` |
+| Header 规则条数为 0 | 从未同步过 `header.rule` | 「从规则文件同步」后刷新 |
+| 攻击日志不增长 | 日志模式/队列/消费者有问题 | 按第 4 节排查 |
+| 攻击地图没有点 | 查询范围无数据，或 `area` 无法解析 | 切到「全部」；看「未定位」计数 |
+| AI 分析报「调用大模型接口失败」 | 多为超时（分析类 30~100 秒） | AI 设置里超时 ≥180 秒；检查网关连通性 |
+| AI 结果看不到 | 旧版本只存在浏览器本地 | 升级后结果存服务端，`GET /api/ai/results/{logId}` |
+| 保存配置报 500 | 目标文件无写权限 | 检查 `LUA_CONFIG` / `app.ini` 所在目录权限与属主 |
+| 慢 SQL 列表为空 | `[monitor] SLOW_SQL_MS` 阈值过高 | 调低阈值（如 200ms）观察 |
+
+## 7. 巡检清单（建议每日 / 每周）
+
+每日：
+
+1. 安全概览：今日拦截量、攻击类型分布是否异常；
+2. 「日志入库队列」：待处理是否回落、失败是否为 0；
+3. 防护分析 → 命中 Top：是否有异常飙升的规则（可能误报或新型攻击）；
+4. 攻击日志：抽查最新攻击是否已被正确归类。
+
+每周：
+
+1. 规则命中样例抽查，处理误报；
+2. 慢 SQL 统计：Top SQL 是否已优化；
+3. 磁盘：MySQL 数据目录、`LOG_DIR`、`config.lua.bak` 大小；
+4. 备份：数据库全量备份 + `conf/` 与 `lua-waf/` 目录备份。

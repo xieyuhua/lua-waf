@@ -1,243 +1,88 @@
 # 变更记录
 
-## 2.0.0
+> 版本号对应 `main.go` 中的 `version`。同一版本内按**主题**归类，不逐条罗列小改动。
 
-> 后端分层重构 + 后台 Vue 3 重写 + 慢 SQL / AI / 攻击地图等新能力。
+---
 
-### 架构
+## 2.0.0（当前）
 
-- 后端改为五层结构：`transport/httpapi → service → repository → model`，基础设施下沉到 `pkg/*` 与 `internal/nginx`；
-  依赖方向单向，业务全部以**结构体 + 方法**实现，一个业务域一个文件。
-- 组合根 `internal/app`：按「配置 → 仓储 → 服务 → 接入层」装配，负责首次初始化、优雅关闭。
-- 仓储抽象为接口，提供 `mysql`（xorm）与 `memory`（演示/测试，含样例数据）两套实现。
-- 配置改为 `默认值 < conf/app.ini < 环境变量`，支持 `WAF_*` 覆盖并在启动时校验。
-- 修复 1.x 无法编译的问题（`routers/waflog.go` 空实现但 `main.go` 引用 4 个 handler）。
-- 修正 `User` 结构体 `xrom` 标签拼写错误，账号名建立唯一索引。
-- 移除 macaron 及其 session/csrf/captcha/cache 依赖，改用标准库 `net/http`（Go 1.22+ 路由）。
+分两大部分：**后端分层重构 + 后台 Vue 3 重写**，以及随后持续叠加的检测能力与运维能力。
 
-### 修复
+### 架构与工程
 
-- **列表筛选/搜索不生效（日志、站点、账号、慢 SQL）**：xorm 的 `Count()` 执行后会重置 session 上的
-  WHERE 条件（`queryRows` 里 `defer resetStatement()`），而各仓储把统计与列表复用在同一个 session 上，
-  导致「总数是过滤后的、列表却是全量」。改为统计与列表各用一个独立 session。
-  新增 `internal/repository/mysql/log_test.go`（`WAF_TEST_MYSQL_DSN` 时连真实库）覆盖
-  攻击类型 / 来源 IP / 关键词 / 分页 / 站点关键词过滤，日志表不存在时才建表、
-  已存在时绝不做 Sync2，避免测试改动线上结构。
-- **跨设备/跨浏览器看不到历史研判结果**：新增 `GET /api/ai/results/{logId}` 与
-  `AnalyzeCache.FindByLog`，日志详情抽屉在本地无结果时自动拉服务端缓存并落到本地，手机可直接查看电脑上的分析；
-  侧边栏底部显示 `X-WAF v版本 · fe-构建指纹`（`/api/system/info` 新增 `frontend_version`），
-  便于确认浏览器加载的是哪一版前端。
-- **移动端看不到 AI 研判结果**：长结论会把弹窗撑到 1300px 以上，而 `el-dialog__body`
-  是 `overflow: visible`，屏幕外的内容无法滚动查看。现在 ≤900px 时 `.el-dialog` 限高 92vh、
-  改为 flex 布局并让正文 `overflow-y: auto`（页脚按钮固定），同时结果出现后自动滚到「研判结果」区；
-  另新增 `utils/markdown.js`（先转义再转换标题/列表/代码/加粗）把结论渲染为易读排版，长链接强制换行。
-- **AI 配置保存一次后无法再修改**：`setting` 表的 `Set` 用 `Insert` 写入，第二次保存同键会撞主键
-  （`Error 1062 Duplicate entry`），前端表现为"改不动"。改为「先更新，未命中再插入；并发撞主键退化为更新」，
-  并新增 `internal/repository/mysql/setting_test.go`（`WAF_TEST_MYSQL_DSN` 存在时连真实库验证连续覆盖）
-  与 `internal/service/ai_test.go`（反复保存、掩码保留密钥、默认值裁剪、非法配置校验）。
+- 后端改为五层结构 `transport/httpapi → service → repository → model`，基础设施下沉到 `pkg/*` 与 `internal/nginx`，
+  依赖方向单向；业务按域一文件一结构体（`service/*.go`）。
+- 组合根 `internal/app`：按「配置 → 仓储 → 服务 → 接入层」装配，负责首次初始化与优雅关闭。
+- 仓储抽象为接口，提供 `mysql`（xorm）与 `memory`（演示/测试，含内置样例数据）两套实现。
+- 配置为 `默认值 < conf/app.ini < 环境变量`，支持 `WAF_*` 覆盖并在启动时校验。
+- 移除 macaron 及其 session/csrf/captcha/cache 依赖，改标准库 `net/http`（Go 1.22 路由）。
+- 前端 Vue 3 + Vite + Element Plus + ECharts 重写；产物经 `//go:embed` 内嵌进二进制，单文件交付。
+- 文档重整：`README` + `docs/{ARCHITECTURE,CONFIG,RULES,API,OPS}.md`。
 
-### 新增功能
+### WAF 检测能力（lua 侧）
 
-- **APISIX 网关：插件下发（镜像复制 + key 限流）**：新增 `internal/apisix`（Admin API 最小客户端，
-  兼容 v2 `node.nodes` 与 v3 `list[].value` 两种响应）与 `service.ApisixService`；
-  后台新增「防护配置 → APISIX 网关」页：展示管理接口状态与路由列表（含已启用的镜像/限流摘要），
-  支持给任意路由**下发/关闭** `proxy-mirror`（地址、路径前缀、采样比例）与 `limit-count`
-  （key、key_type、次数、窗口、拒绝码、local/redis/redis-cluster 策略、配额头）。
-  写回策略为「读路由 → 只合并这两个插件 → PUT 回写」，不会覆盖其它插件与 upstream。
-  配置项 `[apisix] ADMIN_URL / ADMIN_KEY / TIMEOUT_MS`（填 URL 即启用，支持
-  `WAF_APISIX_ADMIN_URL` / `WAF_APISIX_ADMIN_KEY`）；接口见 `docs/API.md`。
-- **安全概览新增「日志入库队列」卡片**：展示待处理（Redis 队列）、处理中、本次启动已入库、失败/丢弃四项指标，
-  以及运行状态徽标（运行中 / 轻微积压 / 队列积压 / Redis 断开 / 未启用）、队列键、最近入库时间与最近错误，
-  并用 5 分钟队列深度折线（待处理 / 处理中）观察积压趋势；每 10 秒自动刷新，未启用时给出三处开关的启用指引。
-- **日志入库改为「lua 写 Redis → Go 消费入库」**（原「lua 直连 MySQL」保留）：
-  新增 `pkg/redis`（零依赖 RESP 客户端：BRPOPLPUSH / LREM / LLEN / RPUSH / RPOP）、
-  `internal/ingest` 消费者（先入 `waf:logs:processing` 再入库、成功后 LREM，崩溃自动回灌，at-least-once）、
-  `LogRepository.BatchCreate`（xorm 多行 INSERT）；`conf/app.ini` 新增 `[log]` 段
-  （`INGEST_ENABLED` / `REDIS_ADDR` / `REDIS_PASSWORD` / `REDIS_DB` / `REDIS_LIST_KEY` / `INGEST_BATCH` / `INGEST_BLOCK_MS`，
-  支持 `WAF_LOG_INGEST`、`WAF_REDIS_ADDR`、`WAF_REDIS_PASSWORD` 覆盖）；新增状态接口
-  `GET /api/system/ingest`（运行状态、队列/处理中长度、累计消费/写入/失败、最近错误）。
-  lua 侧新增 `config_redis_consume` 开关（默认 `on`）：设为 `off` 时 nginx 只 `RPUSH` 不消费，
-  避免与 Go 消费者抢队列；该开关已加入「系统设置 → WAF 配置」表单。默认 `INGEST_ENABLED = off`，不影响现有部署。
+- 新增**请求头检测**阶段（`header.rule`）：Host 注入、`X-Forwarded-For`/`X-Real-IP` 伪造内网地址、头部 Log4Shell、
+  多级 XFF 堆叠、Referer `javascript:`、`X-Original-URL` 穿越、CRLF 注入等。检测链路变为 12 步。
+- 新增**参数归一化** `util.normalize()`：多轮 URL 解码 + `%uXXXX` + HTML 实体 + 去 SQL 注释，
+  编码绕过样本命中率 5/8 → 8/8。
+- **请求体字段级检测**：JSON 递归展开键与字符串值、multipart 逐段检测、上传后缀白名单（`post.upload.ext`）。
+- **UA 白名单** `whiteua.rule`：内部拨测/监控探针可跳过 UA 检测。
+- 规则匹配统一 `ngx.re.find(..., "joi")`（PCRE + JIT + 大小写不敏感），IP 黑白名单也统一为不敏感。
+- 规则加固覆盖近五年攻击面：Log4Shell/Spring4Shell、fastjson/jackson、SQLi 变体、命令执行、SSRF/云元数据、
+  XXE、原型链、GraphQL 内省、SSTI、Shiro/JNDI、以及 ProxyShell/MOVEit/OFBiz/PHPUnit/Laravel/ThinkPHP/
+  Nacos/actuator/Druid/H2/Jenkins/Solr/Docker/K8s 等 CVE 探测路径。
+  当前：args 50 / post 40 / url 27 / cookie 25 / header 12 / useragent 3 / blackip 38 / whiteip 8 / whiteUrl 7。
 
-### 修复
+### 规则与配置管理
 
-- **AI 分析报 `{"code":1500,"message":"调用大模型接口失败，请检查网络与接口地址"}`**：实测确认是**请求超时**——
-  一条慢 SQL 的分析实际耗时约 **97 秒**（长提示词 + `max_tokens=-1` 时长输出），超过配置的 60 秒即被
-  context 取消，而旧文案把所有传输层错误都写成「请检查网络与接口地址」，看不出是超时。
-  现在：① 分析类请求超时**下限 180 秒**（配置更小也按 180 执行，上限提到 900）；② 连接被重置 / EOF 等
-  瞬时错误**自动重试 1 次**（超时与取消不重试）；③ 传输层错误给出可操作原因与接口地址
-  （超时 / 连接被拒绝 / DNS 失败 / 对端中断 / 证书错误 / 地址缺 scheme 等，并附原始错误）；
-  ④ 弹窗提示「分析可能耗时 1~3 分钟，请勿关闭」，AI 设置补充超时与 `-1` 的风险说明。
-- **AI 分析内容不再被截断**：① 「最大输出 tokens」默认 1024 → **4096**，上限 8192 → **32768**，
-  并支持填 `-1` 表示不限制（请求不再发送 `max_tokens`）；② 模型输出达上限（`finish_reason=length`）时
-  **自动续写最多 2 轮**并把内容拼接完整、用量累计；③ 仍被截断时结果带 `truncated` 标记，
-  弹窗与详情抽屉显示「输出被截断」提示，引导调大上限后「忽略缓存重新请求」；
-  ④ 提示词里的输入截断同步放宽（请求路径/请求体 300 → 2000，UA 200 → 600，慢 SQL 语句 2000 → 8000），
-  让模型看到更完整的上下文。
-- **慢 SQL 也支持 AI 分析（优化方案）**：慢 SQL 列表新增勾选列与「AI 优化建议（N）」按钮、行内「AI / AI建议」入口，
-  详情抽屉内直接展示结果；提示词要求模型按「结论 / 原因分析 / 优化方案（含 `CREATE INDEX` 与 SQL 改写）/
-  风险提示 / 验证方式」输出，并明确要求信息不足时不要编造字段名。
-  后端新增 `SlowSQLRepository.Get`、`AIService.AnalyzeSlowSQL`、`CachedSlowSQLResult` 与
-  `POST /api/ai/slow-sql/analyze`、`GET /api/ai/slow-sql/results/{id}`；
-  `AnalyzeCache` 增加场景维度（log / slow_sql），同一 ID 的两类记录缓存互不串味。
-  前端 `AiAnalyzeDialog` 支持 `scene` 属性复用同一套弹窗（标题/计数/预览标签/占位文案随场景变化），
-  本地缓存键同步加场景前缀；Markdown 渲染补上 ``` 代码块（SQL 提示更易读）。
-- **系统设置全部合并为一个页面**：`运行配置 / WAF 配置 / 外观设置 / AI 设置 / 账号设置` 五个选项卡
-  集中在「系统设置」（侧边栏因此只保留一个入口），选项卡状态写入 `?tab=app|waf|appearance|ai|account`；
-  `/settings/lua`、`/settings/appearance`、`/settings/ai`、`/settings/account` 与顶栏「账号设置」入口
-  全部重定向到对应选项卡，旧链接不失效；各面板抽出到 `components/config/*Panel.vue`，
-  统一「说明 + 操作按钮」工具栏，移动端选项卡可横向滑动、无横向溢出。
-- **「运行配置」与「WAF 配置」合并为「系统设置」一个页面**：不再在侧边栏占两个菜单项，
-  改为页面内选项卡切换（`运行配置（app.ini）` / `WAF 配置（config.lua）`），
-  选项卡状态写入地址栏 `?tab=app|waf`，刷新/分享链接可定位；旧地址 `/settings/lua` 自动重定向到
-  `/settings/system?tab=waf`；两个面板抽出为 `components/config/{AppConfigPanel,LuaConfigPanel}.vue`，
-  各自保留原有保存/重载/reload 按钮，移动端选项卡与工具栏自动换行。
+- 规则**逐条启停**（`rules.enabled`，老库自动补列且保持启用），停用规则保留不下发。
+- **规则文件与数据库取并集**（`POST /api/rules/sync-files`）：文件有库里没有的新增，库里已有的不覆盖不删除；
+  支持 `RULE_PATH` 与 `RULE_IMPORT_DIR` 多目录合并，跨目录去重、坏文件容错。
+- **规则命中统计与样例**（防护分析）：按日志 `rule_tag` 聚合排行（今天/7/30 天），点击查看真实命中日志并可一键停用。
+- **检测与拦截顺序**说明（`GET /api/rules/pipeline`），在安全概览顶部可展开查看（默认收起）。
+- **WAF 配置独立菜单 + 模块选项卡**：`config.lua` 47 项按 9 个模块展示；
+  新增 `code` 控件支持**拦截页 HTML 在线编辑**（Lua 长字符串 `[[ ... ]]` 读写、拒绝 `]]`）；
+  后端按职责拆分 `luaconfig_schema.go` / `luaconfig_parse.go` / `luaconfig.go`。
+- 攻击地图默认展示**今日**数据；`config.lua` 在线编辑 + 一键 reload。
 
-### 修复
+### 日志与数据
 
-- **AI 研判结果只显示模型/耗时/tokens、正文一片空白**：根因是模型返回的正文字段为空
-  （推理类模型把内容放在 `reasoning_content`，或 `max_tokens` 用尽 `finish_reason=length`），
-  后端此前原样返回并写入缓存，前端只渲染标题行。
-  现在：① 解析响应时若 `content` 为空自动回退 `reasoning_content` / `reasoning` 并标注「以下为思考过程」；
-  ② 正文仍为空返回明确错误「模型返回内容为空（finish_reason=…），请更换模型或调大最大输出 tokens」；
-  ③ 空正文不再写入服务端缓存；④ 前端遇到历史空缓存条目时显示提示 + 引导「忽略缓存重新请求」，
-  并在读取本地缓存时丢弃无正文的旧条目。
+- **Redis → Go 消费入库**（at-least-once）：`BRPOPLPUSH` + processing 队列 + 崩溃回灌；新增 `internal/ingest` 与
+  `pkg/redis`（零依赖 RESP 客户端）。
+- 安全概览新增「**日志入库队列**」卡片：待处理/处理中/已入库/失败、状态徽标、队列深度折线、未启用时的三步指引。
+- 修复 xorm `Count()` 重置 WHERE 导致的「列表返回全量、总数却是过滤后」（日志/站点/账号/慢 SQL 仓储统计与列表分表查询）。
+- 慢 SQL 统计支持时间范围、按 SQL 归并；后台自身慢 SQL 由 `pkg/sqlwatch` 采集展示。
 
-### 新增功能
+### AI 研判
 
-- **攻击地图支持缩放 + 归属地精确到城市**：`geo.roam` 打开（滚轮 / 双指缩放、拖拽平移，max 8 倍），
-  地图右上角新增放大 / 缩小 / 重置按钮，刷新数据后保留当前视野；
-  地理词表重构为三层匹配（城市 → 省/州 → 国家，共 483 条），解析前剥离运营商与云厂商标记
-  （电信/移动/联通/阿里云/腾讯云/Google Cloud/AWS/Cloudflare…），「保留 / 内网IP / 亚太地区」等占位值
-  判为不可定位并在状态条提示「未定位 N 个来源」。对线上 144.9 万条日志实测：
-  可定位率从原词表的大幅漏配提升到 **98.88%**（剩余 1.12% 为「保留」与空值），
-  且能落到 `山景城 / 洛杉矶 / 休斯顿 / 芝加哥 / 阿姆斯特丹 / 泗水 / 万隆` 等城市粒度。
-- **lua-waf 配置在线编辑**（系统设置 → WAF 配置）：网页读写 `config.lua`，按 8 个分组展示
-  总开关/检测开关/限速/请求体与畸形检测/自动封禁/目录/日志模式/MySQL/Redis 共 40 余项；
-  只替换对应行的值（保留注释、顺序与引号风格，数字保持裸值），保存前备份 `config.lua.bak` 并原子替换；
-  非法取值（开关非 on/off、数字越界、下拉越界、限速格式错误、未知键）直接拒绝且不改文件；
-  密钥类脱敏回显、提交掩码表示不修改；多行 `config_output_html` 等列为「未纳入表单」只读；
-  支持「保存」「保存并生效（nginx -t + reload）」「仅 reload」「查看原文」。
-  路径由 `[waf] LUA_CONFIG` 指定（默认 `/www/server/nginx/x-waf/config.lua`，支持 `WAF_LUA_CONFIG`）。
-- **攻击地图：攻击状态 + 攻击箭头 + 主题跟随**：新增状态条（正常/告警/高危、今日攻击、近 5 分钟、
-  每分钟速率、最近攻击时间，数据来自新接口字段 `status`），地图新增 `lines` 箭头表现
-  「来源 → 防护目标」的攻击链路（线宽随次数、箭头流动效果），目标点由 `[waf] MAP_TARGET`
-  （默认 中国-北京）解析得到；整页配色改为跟随主题（亮/暗 + 主题色），不再固定深色大屏。
-- **AI 分析结果缓存（默认 10 分钟）**：
-  - 服务端 `service.AnalyzeCache`：键 = 接口地址 + 模型 + 系统提示词 + 排序后的日志 ID + 提问，
-    命中直接返回上次结论（`cached: true` + `cached_at`），不再消耗 token；带条目上限与过期清理；
-  - 前端 `stores/ai.js`：同样参数命中本地缓存时连请求都不发，结果存 `localStorage`，
-    刷新页面 10 分钟内仍可回看；
-  - 缓存时长在「AI 设置 → 结果缓存（分钟）」可调（1~120）；支持 `refresh: true` 强制刷新；
-    保存 AI 配置会立即清空服务端缓存。
-- **AI 研判结果的三处查看入口**：分析弹窗内「研判结果」区、日志行「看结果」按钮、
-  日志详情抽屉「AI 研判结果」区块。
-- **全站移动端自适应**：新增断点体系（1400/1200/900/640/360）与 `web/src/utils/responsive.js`；
-  侧栏在 ≤900px 变抽屉、网格自动降列、页头与筛选区堆叠、弹窗/抽屉按视口宽（92%/88%）、
-  统计卡手机两列、图表高度自适应；表格次要列在手机上自动隐藏、操作列固定右侧并可点，
-  其余列横向滑动。新增 `mobile-check.mjs` 遍历 11 个路由验证 390px/768px 无横向溢出（截图复核）。
-- **命令行重置账号口令**：`wafadmin reset-password -config conf/app.ini [-user admin] [-password xxx] [-create]`
-  与 `wafadmin list-users`、`version`、`help`；子命令不启动 HTTP 服务，复用业务层校验与摘要算法
-  （`md5(md5(raw)[5:10])`，兼容 1.x 老库），不带口令时随机生成 16 位并回显。
-  `main.go` 拆出 `serve()`，首个参数以 `-` 开头时仍按原方式启动服务。
-- **修复主键标签（严重）**：`xorm:"pk autoincrement"` 中的 `autoincrement` 不是 xorm 关键字
-  （它只认 `autoincr`），该词会被当成列名 —— 导致 `user`/`rules`/`waf_log` 查询报
-  `Unknown column 'autoincrement'`，新建表的出主键没有自增。现统一为 `pk autoincr 'id'`，
-  并新增 `internal/model/model_test.go` 作为回归防线。
-- **表名对齐 1.x 老库**：`Rule` 的表名固定为 `rules`（老库是复数），`SlowSQL` 为 `slow_sql`，其余为 `site`/`user`/`setting`/`waf_log`。
-- **已存在表补列开关** `database.ADD_MISSING_COLUMNS`（默认 false）：开启后对已有表只补缺失列
-  （xorm `Sync` 语义，只增不改删），用于 1.x 老库缺 `last_login`/`created`/`updated` 的场景；
-  关闭时启动日志会打印检测到的问题列与待执行的 `ALTER` 语句。
-- **SQL 日志**：新增 `mysql.sqlLogger`（实现 xorm `core.ILogger`），开启后每条 SQL 以
-  `[sql] INFO  [SQL] SELECT ... ["waf", "site"] - took: 1.294ms` 形式打印语句、参数与耗时
-  （参数由 xorm 的 `[]interface {}{...}` 简化为 `[...]`）；关闭时连 PING 等 Info 也静默，只保留 Error/Warn。
-  开关为 `database.SHOW_SQL`（默认 dev 开启 / prod 关闭，可用 `WAF_DB_SHOW_SQL` 覆盖），
-  后台「运行配置 → 数据库」可热切换，无需重启（改连接信息仍需重启）。
-- **运行配置编辑**（系统设置 → 运行配置）：网页读写 `conf/app.ini`，保存时先备份 `.bak` 再原子替换；
-  可热更新的项立即生效，需重启的项（运行模式、端口、数据库、会话密钥）在响应中列出提示；
-  支持查看原文与「从磁盘重载」。密钥字段一律脱敏回显，留空/掩码表示保持原值。
-- **主题切换**（系统设置 → 外观设置）：亮色 / 暗色 / 跟随系统 + 6 套主题色，
-  同步驱动品牌渐变、Element Plus 主色色阶与 ECharts 调色板；顶栏提供调色板抽屉与一键亮暗切换，
-  设置持久化在浏览器本地。
-- **建表策略调整**：启动时逐表检查，**已存在的表不再做结构同步**（不再 ALTER，避免
-  `Multiple primary key defined` 之类的同步错误），只有缺失的表才创建；新增 `database.AUTO_MIGRATE` 开关，
-  关闭后缺表直接报错、要求手工初始化。
-- **慢 SQL 统计**：仓储调用计时（阈值 `monitor.SLOW_SQL_MS`）入库 + 外部签名接口上报；
-  支持时间范围查询、总数/均值/P95/超 1s、耗时排行、明细、按天清理。
-- **AI 能力**：OpenAI 兼容大模型配置（密钥脱敏存储）、连通性测试、对选中日志（1–20 条）生成研判结论。
-- **攻击地图大屏**：地区文本 → 经纬度（内置 120+ 词表），世界地图涟漪点、境外占比、地区 Top10、实时拦截、自动刷新。
-- **WAF 规则子菜单**：按「拦截策略 / 访问控制」拆分为 9 个子页面，带数量徽标。
-- **攻击日志筛选**：关键词（IP/URL/UA/类型/规则/站点）+ IP + 站点 + 类型 + 时间范围组合；详情抽屉；勾选日志送 AI。
-- 站点 nginx 配置预览接口；规则内容格式校验（PCRE/RE2 兼容性提示）。
-- 演示模式（`RUN_MODE=demo`）：内置样例数据，无需 MySQL 与 openresty 即可体验全部界面。
+- 攻击日志与慢 SQL 均支持 AI 分析；结果服务端缓存（默认 10 分钟）并跨设备可见。
+- 输出不再被截断：提高最大 tokens、`finish_reason=length` 时自动续写、截断状态可见。
+- 修复「结果只有标题没有正文」（模型正文为空 / 推理模型 `reasoning_content`）。
+- 修复「调用大模型接口失败」实为超时：分析类超时下限 180 秒、瞬时错误重试一次、错误信息可诊断。
+
+### 界面与体验
+
+- 全站移动端自适应（侧栏抽屉、网格降列、表格列裁剪、图表自适应）；主题明暗切换与主题色。
+- 系统设置合并为选项卡页（运行配置 / 外观设置 / AI 设置 / 账号设置），WAF 配置独立成菜单。
+- 攻击地图支持缩放/漫游、攻击状态条、攻击箭头、按 IP 归属地精确落点；地理库覆盖 483 个城市/地区/国家。
 
 ### 安全
 
-- 会话改为 HMAC-SHA256 签名的无状态 Cookie（HttpOnly + SameSite=Lax）。
-- 双提交 Cookie 的 CSRF 防护（`waf_csrf` + `X-CSRF-Token`），写操作强制校验。
-- 登录失败限流（同 IP 5 分钟 10 次）、图形验证码一次性有效。
-- 统一安全响应头与 `Cache-Control: no-store`；口令最小长度 8 位（新增/修改时）。
-- 口令摘要保持 1.x 算法不变（`md5(md5(raw)[5:10])`），老库账号可直接登录。
+- 登录验证码 + 登录频率限制；HMAC 签名会话 Cookie；写接口 CSRF 双提交。
+- 口令 `md5(md5(raw)[5:10])` 兼容历史库；新增 CLI `reset-password` / `list-users` / `version`。
+- 敏感配置（MySQL/Redis 口令、AI api_key）接口层脱敏，提交掩码表示不修改。
 
-### 前端
+### 已知问题 / 注意
 
-- 全新 Vue 3 + Vite + Element Plus + ECharts 工程，替换 1.x 的 Bootstrap/Lumino 模板。
-- 页面：登录、安全概览、攻击地图、站点管理、WAF 规则（子菜单）、账号管理、攻击日志、慢 SQL、AI 设置、账号设置。
-- 亮/暗双主题、响应式布局、页面切换动效、骨架屏与空状态、表格操作列紧凑化。
-- 构建产物通过 `//go:embed all:web/dist` 内嵌，保持单文件部署。
+- `conf/app.ini` 的 `SESSION_SECRET` 为空时每次重启会失效会话，生产必须填固定值。
+- `args.rule` 的 `\$\{` 规则在 JSON 请求体中可能误伤，必要时收窄或停用。
+- `useragent.rule` 的脚本客户端规则会拦 `python-requests`、`curl`，内部拨测请用 `whiteua.rule` 白名单。
+- 曾短暂引入 APISIX 插件下发（镜像复制 / key 限流），已按需求移除，相关代码与文档不再保留。
 
-### lua-waf
+---
 
-- **自动封禁（可选，默认关闭）**：新增 `ban.lua`，命中攻击（由 `util.log_record` 通知）按来源 IP 计数，
-  窗口内达阈值即写入 `ngx.shared.waf_bans`（带 TTL，到期自动解封），`waf.check()` 新增 `ban_check` 阶段直接 403；
-  支持按攻击类型过滤（`config_auto_ban_types`）；白名单 IP 优先，非攻击事件（请求体超限/封禁中）不计入。
-  开关与阈值为 `config_auto_ban_check / expire / window / threshold`。
-  > 说明：默认「检测到攻击只拦当前请求」，这是为避免 NAT、CDN 回源等共享 IP 被误封。
-- **后台一键封禁**：攻击日志列表与详情抽屉新增「封禁」按钮，把来源 IP 写入 `blackip` 规则并立即下发
-  （转义点号后作为正则片段）。
-- **日志输出双模式**（`config_log_mode`）：
-  - `file`：保持 1.x 的本地文件追加写，供采集器读取；
-  - `mysql`：日志先入 `ngx.shared.waf_log_queue` 内存队列，`ngx.timer` 每 N 秒批量
-    `INSERT INTO waf_log`（默认 200 条 / 2 秒），单机高并发不阻塞请求；
-  - `redis`：日志 `RPUSH` 到 Redis 列表，定时批量落库，适合多机汇聚与削峰。
-  - 失败兜底：队列满 / Redis 不可用 / 共享内存未声明时自动回落写文件；落库失败整批回队重试；
-    多 worker 通过共享内存锁保证单写者；`log_consumer.stats()` 提供 inserted/failed/dropped/pending 计数。
-  - 新增文件：`log_sink.lua`、`log_mysql.lua`、`log_redis.lua`、`log_consumer.lua`、`init_worker.lua`、
-    `sql/waf_log.sql`；`util.log_record` 改为统一走 `log_sink`。
-- 新增 `body.lua`：请求体统一读取（含 `get_body_file` 临时文件场景），
-  urlencoded / multipart 分段 / JSON 逐段检测；拦截缺失 boundary、分段数超限、分段头 NUL/裸换行、
-  字段名注入、上传文件名路径穿越。
-- 新增 `malformed.lua`：TE/CL 走私、重复 Content-Length、非单一 chunked、原始报文 NUL 与裸 CRLF、
-  非规范百分号编码、解码后控制字符、超长请求行、Host 校验。
-- `config.lua` 新增 `config_post_multipart_check`、`config_post_max_size`、`config_post_max_parts`、
-  `config_malformed_check`；`waf.lua` 把畸形检测提前到检测链最前。
-- 规则文件格式保持 `[{ "Id":.., "RuleType":.., "RuleItem":".." }]` 不变，兼容既有规则。
+## 1.x（历史）
 
-### 文档
-
-- 重写 `README.md`（功能、快速开始、配置项、部署、规则生效与重载说明）。
-- 新增 `docs/ARCHITECTURE.md`（分层约束、扩展流程、生效链路）、`docs/API.md`（接口与错误码）、
-  `web/README.md`（前端工程）、`CHANGELOG.md`（本文件）。
-- 重写 `lua-waf/README.md`（文件清单、检测顺序、规则格式、配置项、部署生效）。
-
-### 工程
-
-- `.gitignore` 覆盖二进制与前端依赖；移除仓库中误提交的 `server`、`wafadmin` 旧构建产物。
-- 新增测试：`pkg/crypto`（口令兼容/签名）、`pkg/geo`（地区解析）、`internal/service`（站点校验、慢 SQL 口径）、
-  `internal/transport/httpapi`（鉴权、CSRF、登录全流程、CRUD、规则子菜单、地图、看板、同步签名）。
-- 移除 `models/`、`routers/`、`modules/`、`setting/`、`templates/`、`public/`（历史版本保留在 git 记录中）。
-
-### 不兼容变更 / 迁移说明
-
-| 项目 | 1.x | 2.0.0 |
-| --- | --- | --- |
-| 后台页面 | 服务端渲染模板（`/login/`、`/admin/index/`） | SPA（`/login`、`/dashboard`） |
-| 接口形态 | 表单 POST + 重定向 | JSON `/api/*` + 会话 Cookie |
-| CSRF | macaron csrf 中间件 | 双提交 Cookie + `X-CSRF-Token` |
-| 入口 | `go run main.go` | `go run . -config conf/app.ini`，内嵌前端 |
-| 配置 | 仅 ini | ini + 环境变量，`RUN_MODE` 支持 `demo/dev/prod` |
-| 站点/规则下发 | 直接写文件后 reload | 写文件 → `nginx -t` → reload（检查失败则中止） |
-| 数据库 | 自动建 site/user/rules | 追加 `slow_sql`、`setting` 表（`Sync2` 自动创建） |
-| 口令算法 | `md5(md5(raw)[5:10])` | 保持不变（兼容老账号） |
-
-数据库无需手工迁移：`Sync2` 会新增缺失的表与列；`waf_log` 仍由 openresty 侧写入，后台只读。
+1.x 为旧版（macaron 框架 + 模板渲染），主要能力：攻击日志查看、规则文件管理、站点管理。
+2.0.0 重写时保留其数据结构（`waf_log`、`rules`、`site`、`user`、`slow_sql`）与口令算法，
+并新增「表已存在时只补缺失列」的兼容策略，便于从 1.x 平滑升级。

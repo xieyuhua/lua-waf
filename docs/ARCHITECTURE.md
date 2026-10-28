@@ -1,205 +1,87 @@
-# 架构与开发指引
+# 架构说明
 
-本文档说明 wafadmin v2 的分层设计、各层职责、扩展方式，以及前端工程结构。
-
-## 1. 分层与职责
-
-| 层 | 目录 | 职责 | 禁止事项 |
-| --- | --- | --- | --- |
-| 接入层 | `internal/transport/httpapi` | 路由注册、参数绑定、身份与 CSRF 校验、错误码映射、SPA 静态托管 | 不写业务规则、不直接访问数据库 |
-| 业务层 | `internal/service` | 校验、编排、事务边界、跨域协作（如同步下发） | 不感知 `http.Request`、不拼 SQL |
-| 仓储层 | `internal/repository` | 持久化契约与实现（MySQL / 内存） | 不含业务判断（除过滤条件外） |
-| 领域模型 | `internal/model` | 实体、查询条件、分页结构、内置规则数据 | 不依赖任何其它层 |
-| 基础设施 | `pkg/*`、`internal/nginx` | 无业务语义的通用能力 | 不反向依赖上层 |
-
-依赖方向严格单向：`transport → service → repository → model`。
-
-## 2. 一个业务域的完整形态
-
-以「站点管理」为例，同一业务域分散在固定位置，便于定位：
+## 1. 总览
 
 ```
-internal/model/site.go                    # 实体 + 与实体强相关的派生方法
-internal/repository/site.go               # SiteRepository 接口
-internal/repository/mysql/site.go         # MySQL 实现（带慢 SQL 观测）
-internal/repository/memory/site.go        # 内存实现（演示/测试）
-internal/service/site.go                  # SiteService：校验 + 编排 + 配置预览
-internal/transport/httpapi/handler_site.go# SiteHandler：路由 + 参数 + 响应
-web/src/api/site.js                       # 前端接口封装
-web/src/views/SitesView.vue               # 前端页面
+┌──────────────────────────────┐        ┌───────────────────────────────┐
+│  openresty / nginx (lua-waf) │        │  wafadmin (Go)                │
+│                              │        │                               │
+│  请求 → waf.check()          │        │  Vue 前端 (go:embed)          │
+│   ├─ 12 步检测               │        │  transport/httpapi  ← REST    │
+│   ├─ 命中 → 拦截 + 写日志    │        │  service            ← 业务    │
+│   └─ 命中 → 可选自动封禁     │        │  repository         ← 存储    │
+│                              │        │                               │
+│  日志：file / mysql / redis ─┼───────►│  ingest（Redis 消费者）       │
+└──────────────────────────────┘        └───────────────┬───────────────┘
+                                                        │
+                                     MySQL（日志/规则/站点/账号/配置）
 ```
 
-## 3. 新增一个业务域的步骤
+职责边界：
 
-1. **模型**：在 `internal/model/` 新建 `xxx.go`，定义实体与查询条件（如需要，追加到 `query.go`）。
-2. **仓储契约**：在 `internal/repository/xxx.go` 定义 `XxxRepository` 接口，
-   并把接口字段加入 `internal/repository/store.go` 的 `Repositories` 与 `Ensure()`。
-3. **两套实现**：
-   - `internal/repository/mysql/xxx.go`：xorm 实现，每个方法首行
-     `defer r.observer.Trace(ctx, "xxx.op", "SQL ...")()` 以便计入慢 SQL。
-   - `internal/repository/memory/xxx.go`：内存实现，注意加读写锁、保持与 SQL 一致的分页/排序语义。
-4. **服务**：`internal/service/xxx.go` 定义 `XxxService`，字段即依赖（导出以便组合根注入）；
-   校验失败时返回 `ErrInvalid.New(...)` 这类业务错误。
-5. **接入**：
-   - `internal/transport/httpapi/handler_xxx.go` 定义 `XxxHandler` + `Register(mux, routes)`；
-   - 在 `server.go` 的 `register()` 中注册，并在 `Deps` 增加对应服务字段。
-6. **装配**：在 `internal/app/app.go` 的 `services()` 中构造并注入。
-7. **前端**：`web/src/api/xxx.js` + `web/src/views/XxxView.vue` + 路由与侧边栏菜单。
-8. **测试**：`internal/service/xxx_test.go`（业务规则）与 `httpapi` 中的接口用例（鉴权 + 正常/异常路径）。
+- **lua-waf**：只做“判定与拦截”，不关心展示。规则文件与 `config.lua` 由后台下发，也可运维直接维护。
+- **wafadmin**：管理面。读写配置与规则、展示统计、消费 Redis 队列写库；不做任何请求过滤。
 
-## 4. 错误与响应约定
+## 2. 分层结构
 
-业务错误统一使用 `service.Error`（由 `ErrInvalid`、`ErrNotFound`、`ErrConflict`、
-`ErrForbidden`、`ErrUnauthorized`、`ErrInternal` 这些 `Fault` 构造）：
+| 层 | 包 | 职责 | 约束 |
+|---|---|---|---|
+| 组合根 | `internal/app` | 装配仓储、服务、路由、日志消费者 | 唯一知道“用 MySQL 还是内存”的地方 |
+| 传输层 | `internal/transport/httpapi` | 路由、参数绑定、状态码、中间件（会话 / CSRF / 限流 / panic 恢复 / 访问日志） | 不做业务判断，错误统一转 `service.Fault` |
+| 业务层 | `internal/service` | 校验、编排、事务边界、缓存 | 通过 `repository` 接口访问存储，不直接写 SQL |
+| 仓储层 | `internal/repository` | 接口 + `mysql`、`memory` 两套实现 | 两套实现必须语义一致（便于 demo 与单测） |
+| 领域模型 | `internal/model` | 结构体与规则类型目录 | 无依赖 |
+| 基础设施 | `pkg/*` | captcha、crypto、geo、ratelimit、redis(RESP 客户端)、response、session、sqlwatch | 不依赖 internal |
+| 集成 | `internal/nginx`、`internal/ingest` | 渲染 vhost / rule 文件并 reload；消费 Redis 队列 | 副作用集中在此 |
 
-```go
-if target.Port <= 0 {
-    return nil, service.ErrInvalid.New("监听端口需在 1-65535 之间")
-}
-```
+依赖方向单一：`transport → service → repository → model`，`pkg` 被任意层使用但自身不反向依赖。
 
-接入层 `Responder` 负责把 `service.Error` 映射为 HTTP 状态码与业务码：
-
-| Kind | HTTP | code |
-| --- | --- | --- |
-| invalid | 400 | 1001 |
-| unauthorized | 401 | 1002 |
-| forbidden | 403 | 1003 |
-| not_found | 404 | 1004 |
-| conflict | 409 | 1005 |
-| internal | 500 | 1500 |
-
-前端 `web/src/api/client.js` 统一解析 `{code,message,data}`，非 0 时抛出 `ApiError`，
-401 时触发跳转登录页。
-
-## 5. 安全设计
-
-- **会话**：HMAC-SHA256 签名的无状态 Cookie（`pkg/session`），HttpOnly + SameSite=Lax，默认 12 小时。
-- **CSRF**：双提交 Cookie，`waf_csrf`（非 HttpOnly，便于前端读取）+ 请求头 `X-CSRF-Token`；
-  写操作缺少或不等即 403。
-- **验证码**：进程内 TTL 存储，校验一次即销毁，图片由标准库绘制（无第三方图形依赖）。
-- **登录限流**：同一来源 IP 5 分钟内最多 10 次尝试。
-- **口令**：保持与 1.x 完全一致的摘要算法（`md5(md5(raw)[5:10])`），升级后老账号可继续登录；
-  新增/修改口令时要求至少 8 位。
-- **节点同步**：`md5(API_KEY + md5(timestamp + API_KEY))` 签名 + ±10 分钟时间窗，
-  不影响后台会话鉴权。
-- **响应头**：`X-Content-Type-Options`、`X-Frame-Options`、`Referrer-Policy`；
-  API 响应 `Cache-Control: no-store`。
-
-## 6. nginx 配置下发
-
-`internal/nginx` 负责：
-
-- `Render(site)`：用 `template.go` 中的 vhost 模板渲染 upstream + server 段（含 SSL、诱饵地址、日志级别、
-  请求体上限，配合 WAF 的 POST 分段检测）。
-- `WriteVhost` / `RemoveVhost`：写入 `NGINX_VHOSTS/<域名>.conf`，统一 LF 换行。
-- `WriteRules`：按类型写出 `<type>.rule`，**字段名保持 `Id/RuleType/RuleItem`**，
-  因为 lua 侧 `util.get_rules` 以 `rule["RuleItem"]` 取值。
-- `Test` / `Reload`：`nginx -t` 通过后才 `-s reload`；演示模式（`DryRun`）只渲染不落盘。
-
-## 7. 前端工程结构
+## 3. 请求链路（以一个写接口为例）
 
 ```
-web/src/
-├── main.js               # 应用装配：路由、Element Plus（中文包）、图标、全局样式
-├── App.vue               # 根组件 + 会话失效跳转
-├── router/index.js       # 路由表 + 守卫（未登录跳登录页）
-├── api/                  # 按业务域拆分的接口封装 + 统一 client
-├── stores/               # 轻量响应式状态（登录态、主题、规则类型缓存）
-├── layouts/AdminLayout   # 侧边栏 + 顶栏 + 内容区（含移动端抽屉）
-├── components/           # 指标卡、图表容器、AI 分析弹窗、侧边栏、顶栏
-├── views/                # 每个菜单一个页面
-├── styles/main.css       # 设计系统：色板、卡片、导航、表格、动效、暗色主题
-├── assets/world.geo.json # 攻击地图数据（scripts/build-world-geo.mjs 生成）
-└── utils/format.js       # 时间/数字/语句格式化
+POST /api/lua/config
+  → AccessLogger → Recoverer → SecurityHeaders → CSRF → Authenticator.Private
+  → LuaConfigHandler.save
+      → LuaConfigService.Update
+          → 校验（luaconfig_parse.normalizeLuaValue）
+          → 按行回写（luaconfig_parse.rewriteLuaValues）
+          → 备份 + 原子写文件（luaconfig.writeFile）
+      → 返回最新视图（脱敏）
+  → response.Writer 输出 { code:0, data:... }
 ```
 
-工程细节（命令、接口约定、设计 token、新增页面步骤）见 [web/README.md](../web/README.md)。
+错误统一模型：`service.Fault{Kind, Message}` → `code`（1001 参数非法 / 1002 未登录 / 1003 无权限 / 1004 不存在 / 1005 冲突 / 1500 内部错误），
+对外只序列化 `Message`（内部原因写在日志里，不泄漏给前端）。
 
-设计规范要点：
+## 4. 数据模型（MySQL）
 
-- 品牌色渐变 `--waf-gradient: #6366f1 → #8b5cf6`，卡片圆角 14px，阴影轻量不抢内容；
-- 暗色主题通过 `html.dark` + Element Plus 官方暗色变量，状态持久化到 `localStorage`；
-- 侧边栏深色渐变、选中态使用左侧渐变条 + 半透明底色；规则子菜单按「拦截策略 / 访问控制」分组；
-- 攻击地图大屏使用独立的深色皮肤（不随主题变化），ECharts `geo + effectScatter` 呈现涟漪动效。
+| 表 | 说明 |
+|---|---|
+| `waf_log` | 攻击日志：`client_ip`、`local_time`、`server_name`、`user_agent`、`attack_type`、`req_url`、`req_data`、`area`、`rule_tag` |
+| `rules` | WAF 规则：`rule_type`、`rule_item`、`enabled`（默认 1） |
+| `site` | 反代站点：域名、上游、证书、状态 |
+| `user` | 管理员：账号、口令摘要、状态 |
+| `setting` | 键值配置（如 `ai.config`） |
+| `slow_sql` | 后台自身慢 SQL 采样 |
 
-## 8. 测试策略
+建表策略：表不存在则 `Sync` 建表；表已存在时**只补缺失列**（`ADD_MISSING_COLUMNS`），不修改、不删除，避免线上事故。
 
-- 单元测试：`pkg/crypto`（口令兼容、签名）、`pkg/geo`（地区解析）、
-  `internal/service`（站点校验、慢 SQL 时间范围与统计口径）。
-- 接口测试：`internal/transport/httpapi` 用内存仓储 + `httptest` 覆盖
-  未登录 401、CSRF 403、登录全流程（含验证码单次有效）、站点 CRUD、规则子菜单、
-  慢 SQL 时间查询、攻击地图、看板、同步签名拒绝。
-- 演示模式可直接 `go run .` 手工验收，或按 README 用无头浏览器截图核对界面。
+## 5. 关键设计决策
 
-## 9. 规则与配置的生效链路
+| 决策 | 原因 |
+|---|---|
+| 规则文件与数据库**取并集**（只增不删） | 规则可能由运维直接在服务器维护，后台不能覆盖；同时让后台能纳入新规则 |
+| `config.lua` 采用**按行改值**而非重排 | 保留注释、顺序、缩进；出问题可用 `.bak` 回滚 |
+| 日志入库提供三种模式 | 小流量用 file，简单场景直连 mysql，高并发用 redis + 后台消费（at-least-once） |
+| 规则匹配大小写不敏感 + 输入归一化 | 大小写/编码是最常见的绕过手法，统一下沉比逐条规则写死更可靠 |
+| AI 结果服务端缓存 | 分析单次常需 30~100 秒，跨设备/刷新要能复用，避免重复计费 |
+| 前端内嵌进二进制 | 单文件交付，升级只需替换可执行文件 |
+| `memory` 仓储与 `mysql` 同接口 | demo 模式、单测、以及“读不到库时的降级展示”都靠它 |
 
-配置写盘并不等于生效，链路如下：
+## 6. 并发与可靠性
 
-```
-后台操作                      磁盘                       openresty
-──────────────────────────────────────────────────────────────────────────
-「下发全部规则」  →  RULE_PATH/<type>.rule  →  reload → 新 worker 执行
-「站点同步」      →  NGINX_VHOSTS/<域名>.conf          init_by_lua →
-                                                        waf.load_rules()
-「节点同步」(其他机器) → 各节点自身重复上述两步
-```
-
-要点：
-
-- 规则表在 **worker 内存**（`waf.lua` 的 `_M.RULES`），由 `init_by_lua_file` 在配置加载时填充，
-  因此必须让 worker 重建（`reload`）才会看到新规则；`restart` 不是必需的，且会打断连接。
-- `SyncService.ApplyRules/ApplySites` 的步骤固定为：**写文件 → `nginx -t` → `nginx -s reload`**，
-  `-t` 失败即中止并把错误返回前端，坏配置不会生效。
-- 演示模式（`RUN_MODE=demo`）下 `nginx.Manager.DryRun = true`：只渲染、不写盘、不 reload，
-  便于本机体验。
-- `RULE_PATH`（后台）必须与 lua `config_rule_dir` 完全一致，含尾斜杠，否则规则写了却读不到。
-- 只有修改 `lua_shared_dict` 名称/大小、升级 nginx 二进制等场景才需要完全重启。
-
-## 10. 配置热更新与建表策略
-
-### 10.1 运行配置（`/api/system/config`）
-
-`service.SystemConfigService` 持有运行中的 `*config.Config` 指针、`config.Loader`、`config.Writer`
-与一个 `ConfigApplier` 回调：
-
-```
-PUT /api/system/config
-  → merge 入参（字符串留空=保持，密钥掩码=保持）
-  → cfg.Validate()
-  → Writer.Save（备份 .bak → 临时文件 → rename）
-  → *cfg = 新值（指针不变，各层共享）
-  → Applier.Apply(cfg)   ← 组合根 internal/app/runtime.go 实现
-```
-
-`runtimeConfig.Apply` 会就地更新：nginx 管理器的路径与 DryRun、各服务的分页大小、慢 SQL 阈值、
-同步密钥、验证码 TTL、会话 TTL/密钥/Secure、CSRF Secure。
-**需重启**的字段（`RUN_MODE`、`HTTP_PORT`、`database.*`、`SESSION_SECRET`）只在响应
-`restart_required` 中提示，不在进程内切换，避免监听端口/连接池被动变更。
-
-会话密钥来源被记录在 `Config.SessionSecretSource`（file / env / generated）：
-只有 file 来源才写回文件，避免把环境变量或启动时随机生成的密钥落盘。
-
-### 10.2 建表策略
-
-`repository/mysql.Store.ensureTables` 逐张检查表是否存在：
-
-| 情况 | 行为 |
-| --- | --- |
-| 表已存在 | 跳过，**不做 Sync2 / 不做 ALTER**（线上表结构不会被程序改动） |
-| 表不存在且 `AUTO_MIGRATE = true` | `Sync2` 创建该表 |
-| 表不存在且 `AUTO_MIGRATE = false` | 启动失败，提示手工建表 |
-| `waf_log` | 始终不创建（由 openresty 侧维护），仅检测并告警 |
-
-字段新增（如 v2 的 `slow_sql`、`setting`）通过「新表创建」完成；**已有表的列变更需要人工迁移**，
-这是为了让后台不会在生产库上隐式执行 DDL。
-
-## 11. 文档地图
-
-| 文档 | 面向 |
-| --- | --- |
-| [../README.md](../README.md) | 使用与部署（功能、快速开始、配置项） |
-| [API.md](API.md) | 前后端联调（接口结构、错误码） |
-| [../lua-waf/README.md](../lua-waf/README.md) | openresty 侧 WAF（检测顺序、规则格式、开关） |
-| [../web/README.md](../web/README.md) | 前端开发（工程结构、设计系统） |
-| [../CHANGELOG.md](../CHANGELOG.md) | 版本变更记录 |
+- **Redis 消费者**：`BRPOPLPUSH` 原子取出到 processing 队列 → 批量写 MySQL → `LREM` 确认；
+  启动时把 processing 里的残留回灌源队列（崩溃恢复），实现 at-least-once。
+- **配置写入**：`LuaConfigService` 与 `SystemConfigService` 都加互斥锁 + 临时文件原子替换，避免并发保存互相覆盖。
+- **看板指标**：`/api/system/ingest` 由消费者实时上报，前端 10 秒轮询绘制队列深度。
+- **慢 SQL 采集**：`pkg/sqlwatch` 包装 xorm 执行，超过 `SLOW_SQL_MS` 记库并在后台展示、可交 AI 分析。
