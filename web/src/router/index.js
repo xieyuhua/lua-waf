@@ -58,6 +58,12 @@ export const routes = [
       },
 
       {
+        path: 'waf-insight',
+        name: 'waf-insight',
+        component: () => import('../views/WafInsightView.vue'),
+        meta: { title: '防护分析', crumb: '防护配置 / 防护分析' }
+      },
+      {
         path: 'settings/system',
         name: 'system-config',
         component: () => import('../views/SystemSettingsView.vue'),

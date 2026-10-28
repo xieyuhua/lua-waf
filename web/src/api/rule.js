@@ -17,6 +17,8 @@ export const ruleApi = {
   pipeline: () => api.get('/rules/pipeline'),
   /** 规则命中统计（按 rule_tag 聚合） */
   stats: (params) => api.get('/rules/stats', params),
+  /** 某条规则的命中样例（判断误杀） */
+  samples: (params) => api.get('/rules/stats/samples', params),
   /** 启用/停用规则 */
   setEnabled: (id, enabled) => api.put(/rules//enabled, { enabled })
 }

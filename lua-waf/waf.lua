@@ -128,6 +128,26 @@ function _M.cc_attack_check()
     return false
 end
 
+-- UA 白名单：命中的 UA 不做扫描器/脚本客户端检测（用于内部拨测、监控探针）
+function _M.white_ua_check()
+    local WHITE_UA_RULES = _M.get_rule('whiteua.rule')
+    if WHITE_UA_RULES == nil then
+        return false
+    end
+
+    local UA = ngx.var.http_user_agent
+    if UA == nil or UA == "" then
+        return false
+    end
+
+    for _, rule in pairs(WHITE_UA_RULES) do
+        if rule ~= "" and rulematch(UA, rule, "joi") then
+            return true
+        end
+    end
+    return false
+end
+
 -- deny header attack（Host 注入 / 代理头伪造 / 头部 JNDI / 头内注入）
 function _M.header_attack_check()
     if config.config_header_check == "on" then
@@ -227,6 +247,10 @@ end
 -- deny user agent
 function _M.user_agent_attack_check()
     if config.config_user_agent_check == "on" then
+        -- UA 白名单优先：内部拨测/监控探针可在此放行（rules/whiteua.rule）
+        if _M.white_ua_check() then
+            return false
+        end
         local USER_AGENT_RULES = _M.get_rule('useragent.rule')
         local USER_AGENT = ngx.var.http_user_agent
         if USER_AGENT ~= nil then

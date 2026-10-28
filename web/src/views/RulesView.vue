@@ -56,19 +56,6 @@ async function loadStats() {
   }
 }
 
-// WAF 检测与拦截顺序（只读说明，来源于后端 /api/rules/pipeline）
-const pipeline = ref(null)
-const pipelineExpanded = ref(true)
-
-/** 加载检测顺序说明 */
-async function loadPipeline() {
-  try {
-    pipeline.value = await ruleApi.pipeline()
-  } catch (error) {
-    /* 说明信息不可用不影响规则编辑 */
-  }
-}
-
 async function load() {
   loading.value = true
   try {
@@ -208,7 +195,6 @@ watch(currentKey, () => {
 onMounted(async () => {
   await ruleStore.load()
   load()
-  loadPipeline()
   loadStats()
 })
 </script>
@@ -227,66 +213,6 @@ onMounted(async () => {
       </div>
     </div>
 
-    <!-- 规则命中统计 -->
-    <div v-if="ruleStats.length" class="waf-card" style="margin-bottom: 16px">
-      <div class="waf-card-head">
-        <div class="waf-card-title"><span class="bar"></span> 规则命中 Top</div>
-        <div style="display: flex; align-items: center; gap: 8px">
-          <el-radio-group v-model="statsDays" size="small" @change="loadStats">
-            <el-radio-button :value="1">今天</el-radio-button>
-            <el-radio-button :value="7">7 天</el-radio-button>
-            <el-radio-button :value="30">30 天</el-radio-button>
-          </el-radio-group>
-          <span class="waf-muted" style="font-size: 11.5px">命中次数来自日志 rule_tag</span>
-        </div>
-      </div>
-      <div class="stat-list">
-        <div v-for="item in ruleStats" :key="item.rule_tag" class="stat-item">
-          <div class="stat-bar" :style="{ width: `${Math.max(4, (item.count / ruleStats[0].count) * 100)}%` }"></div>
-          <span class="stat-count">{{ item.count }}</span>
-          <code class="waf-mono stat-tag">{{ item.rule_tag }}</code>
-        </div>
-      </div>
-    </div>
-    <!-- WAF 检测与拦截顺序（只读说明） -->
-    <div v-if="pipeline" class="waf-card" style="margin-bottom: 16px">
-      <div class="waf-card-head">
-        <div class="waf-card-title"><span class="bar"></span> 检测与拦截顺序</div>
-        <div style="display: flex; align-items: center; gap: 10px">
-          <span class="waf-muted" style="font-size: 11.5px">与 lua-waf/waf.lua 的 check() 一致</span>
-          <el-button text size="small" @click="pipelineExpanded = !pipelineExpanded">
-            {{ pipelineExpanded ? '收起' : '展开' }}
-          </el-button>
-        </div>
-      </div>
-
-      <div v-show="pipelineExpanded">
-        <div class="pipeline-list">
-          <div v-for="step in pipeline.steps" :key="step.order" class="pipeline-item">
-            <span class="pipeline-order">{{ step.order }}</span>
-            <div class="pipeline-main">
-              <div class="pipeline-title">
-                {{ step.title }}
-                <el-tag
-                  size="small"
-                  :type="step.action === 'allow' ? 'success' : step.action === 'deny' ? 'danger' : 'warning'"
-                  effect="light"
-                >
-                  {{ step.action === 'allow' ? '放行' : step.action === 'deny' ? '拦截' : '检测' }}
-                </el-tag>
-                <code v-if="step.rule_file" class="waf-mono pipeline-file">{{ step.rule_file }}</code>
-                <code v-if="step.switch" class="waf-mono pipeline-switch">{{ step.switch }}</code>
-              </div>
-              <div class="pipeline-desc">{{ step.desc }}</div>
-            </div>
-          </div>
-        </div>
-
-        <ul class="pipeline-notes">
-          <li v-for="(note, index) in pipeline.notes" :key="index">{{ note }}</li>
-        </ul>
-      </div>
-    </div>
     <!-- 规则类型切换（等同侧边栏子菜单） -->
     <div class="waf-card" style="padding: 12px 14px; margin-bottom: 16px">
       <div class="type-chips">

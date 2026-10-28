@@ -135,6 +135,103 @@ func (s *RuleService) TagStats(ctx context.Context, days int, limit int) ([]Rule
 	return result, nil
 }
 
+// RuleSample 是命中样例（用于误报判断）。
+type RuleSample struct {
+	// Id 为日志主键。
+	Id int64 `json:"id"`
+	// ClientIp 为来源 IP。
+	ClientIp string `json:"client_ip"`
+	// LocalTime 为发生时间。
+	LocalTime string `json:"local_time"`
+	// AttackType 为攻击类型。
+	AttackType string `json:"attack_type"`
+	// ReqUrl 为请求地址。
+	ReqUrl string `json:"req_url"`
+	// ReqData 为命中的请求内容（已截断）。
+	ReqData string `json:"req_data"`
+	// ServerName 为站点。
+	ServerName string `json:"server_name"`
+}
+
+// RuleSampleView 是命中样例接口的返回体。
+type RuleSampleView struct {
+	// RuleTag 为命中的规则标识。
+	RuleTag string `json:"rule_tag"`
+	// Days 为统计窗口。
+	Days int `json:"days"`
+	// Total 为窗口内的命中总数。
+	Total int64 `json:"total"`
+	// RuleId 为库中对应规则 ID（0 表示库中无此规则，例如内置/文件规则未同步）。
+	RuleId int64 `json:"rule_id"`
+	// RuleEnabled 为对应规则是否启用。
+	RuleEnabled bool `json:"rule_enabled"`
+	// Items 为样例列表。
+	Items []RuleSample `json:"items"`
+}
+
+// TagSamples 返回某条规则的命中样例，并回查库中对应规则（用于判断与一键停用）。
+func (s *RuleService) TagSamples(ctx context.Context, tag string, days int, limit int) (*RuleSampleView, error) {
+	tag = strings.TrimSpace(tag)
+	if tag == "" {
+		return nil, ErrInvalid.New("请指定规则标识")
+	}
+	if days <= 0 {
+		days = 7
+	}
+	if limit <= 0 || limit > 50 {
+		limit = 5
+	}
+
+	items, err := s.Logs.TagSamples(ctx, tag, days, limit)
+	if err != nil {
+		return nil, ErrInternal.Wrap(err, "查询命中样例失败")
+	}
+	stats, err := s.Logs.TagStats(ctx, days, 200)
+	if err != nil {
+		return nil, ErrInternal.Wrap(err, "统计命中次数失败")
+	}
+
+	view := &RuleSampleView{Days: days, RuleTag: tag, Items: make([]RuleSample, 0, len(items))}
+	for _, item := range stats {
+		if item.RuleTag == tag {
+			view.Total = item.Count
+			break
+		}
+	}
+
+	// 回查库中是否有同内容的规则，便于前端直接停用
+	if rules, listErr := s.Rules.List(ctx, ""); listErr == nil {
+		for _, rule := range rules {
+			if rule.RuleItem == tag {
+				view.RuleId = rule.Id
+				view.RuleEnabled = rule.Enabled
+				break
+			}
+		}
+	}
+
+	for _, item := range items {
+		data := item.ReqData
+		if len(data) > 300 {
+			data = data[:300] + "…"
+		}
+		url := item.ReqUrl
+		if len(url) > 300 {
+			url = url[:300] + "…"
+		}
+		view.Items = append(view.Items, RuleSample{
+			Id:         item.Id,
+			ClientIp:   item.ClientIp,
+			LocalTime:  item.LocalTime,
+			AttackType: item.AttackType,
+			ReqUrl:     url,
+			ReqData:    data,
+			ServerName: item.ServerName,
+		})
+	}
+	return view, nil
+}
+
 // RuleHitStat 是单条规则的命中统计。
 type RuleHitStat struct {
 	// RuleTag 为日志中的命中标识。

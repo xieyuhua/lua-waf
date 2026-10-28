@@ -25,6 +25,8 @@ type LogRepository interface {
 	BatchCreate(ctx context.Context, items []model.WafLog) (int64, error)
 	// TagStats 按命中规则聚合最近 days 天的日志（days<=0 表示全部时间）。
 	TagStats(ctx context.Context, days int, limit int) ([]model.TagStat, error)
+	// TagSamples 返回某条命中规则（rule_tag）最近的日志样例，用于判断是否误杀。
+	TagSamples(ctx context.Context, tag string, days int, limit int) ([]model.WafLog, error)
 	// Count 返回日志总数。
 	Count(ctx context.Context) (int64, error)
 	// CountOnDay 返回指定日期的日志条数。

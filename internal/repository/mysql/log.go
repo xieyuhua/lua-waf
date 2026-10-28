@@ -89,6 +89,31 @@ func (r *logRepo) List(ctx context.Context, q model.LogQuery) ([]model.WafLog, i
 	return items, total, nil
 }
 
+// TagSamples 返回某条命中规则最近的日志样例。
+func (r *logRepo) TagSamples(ctx context.Context, tag string, days int, limit int) ([]model.WafLog, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 5
+	}
+
+	session := r.engine.NewSession().Where("rule_tag = ?", tag)
+	if days > 0 {
+		session = session.And("local_time >= ?", time.Now().AddDate(0, 0, -days))
+	}
+	session = session.Desc("id").Limit(limit)
+	defer session.Close()
+
+	defer r.observer.Trace(ctx, "log.tag_samples", "SELECT * FROM waf_log WHERE rule_tag = ? ORDER BY id DESC LIMIT ?")()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	items := make([]model.WafLog, 0, limit)
+	if err := session.Find(&items); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 // TagStats 按命中规则聚合最近 days 天的日志。
 func (r *logRepo) TagStats(ctx context.Context, days int, limit int) ([]model.TagStat, error) {
 	if limit <= 0 || limit > 200 {

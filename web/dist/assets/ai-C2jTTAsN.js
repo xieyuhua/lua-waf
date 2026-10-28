@@ -1,0 +1,1 @@
+import{d as s}from"./index-tuGzxUcb.js";const e={status:()=>s.get("/ai/config"),save:a=>s.put("/ai/config",a),test:()=>s.post("/ai/test"),analyze:a=>s.post("/ai/analyze",a),result:a=>s.get(`/ai/results/${a}`),analyzeSlowSQL:a=>s.post("/ai/slow-sql/analyze",a),slowSQLResult:a=>s.get(`/ai/slow-sql/results/${a}`)};export{e as a};

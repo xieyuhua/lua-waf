@@ -107,6 +107,12 @@
 说明：日志里的 `rule_tag` 存的是命中规则的标识（内置规则为 `类型->名称`，自定义规则为正则内容），
 因此可用于发现高频规则、评估新规则的收益，以及排查疑似误杀。
 
+### GET /api/rules/stats/samples
+
+某条命中规则的日志样例（用于判断误杀）：`?rule_tag=...&days=7&limit=8` →
+`{ rule_tag, days, total, rule_id, rule_enabled, items: [{ id, client_ip, local_time, attack_type, req_url, req_data, server_name }] }`。
+`rule_id` 为库中同内容规则的 ID（0 表示库中没有，例如内置规则未同步），用于页面上一键停用。
+
 ### PUT /api/rules/{id}/enabled
 
 启用/停用一条规则：`{ "enabled": false }`。停用后规则**仍保留在库中**，但下发规则文件时会被跳过，
@@ -331,6 +337,12 @@
 
 说明：日志里的 `rule_tag` 存的是命中规则的标识（内置规则为 `类型->名称`，自定义规则为正则内容），
 因此可用于发现高频规则、评估新规则的收益，以及排查疑似误杀。
+
+### GET /api/rules/stats/samples
+
+某条命中规则的日志样例（用于判断误杀）：`?rule_tag=...&days=7&limit=8` →
+`{ rule_tag, days, total, rule_id, rule_enabled, items: [{ id, client_ip, local_time, attack_type, req_url, req_data, server_name }] }`。
+`rule_id` 为库中同内容规则的 ID（0 表示库中没有，例如内置规则未同步），用于页面上一键停用。
 
 ### PUT /api/rules/{id}/enabled
 

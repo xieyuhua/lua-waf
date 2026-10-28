@@ -27,6 +27,7 @@ func (h *RuleHandler) Register(mux *http.ServeMux, routes Routes) {
 	mux.HandleFunc("GET /api/rules", routes.Private(h.list))
 	mux.HandleFunc("GET /api/rules/pipeline", routes.Private(h.pipeline))
 	mux.HandleFunc("GET /api/rules/stats", routes.Private(h.stats))
+	mux.HandleFunc("GET /api/rules/stats/samples", routes.Private(h.samples))
 	mux.HandleFunc("PUT /api/rules/{id}/enabled", routes.Private(h.setEnabled))
 	mux.HandleFunc("POST /api/rules/sync-files", routes.Private(h.syncFiles))
 	mux.HandleFunc("POST /api/rules", routes.Private(h.create))
@@ -181,4 +182,15 @@ func (h *RuleHandler) setEnabled(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.Data(w, rule)
+}
+
+// samples 返回某条命中规则的日志样例（用于判断是否误杀）。
+func (h *RuleHandler) samples(w http.ResponseWriter, r *http.Request) {
+	query := NewQueryParams(r)
+	view, err := h.Rules.TagSamples(r.Context(), query.String("rule_tag"), query.Int("days", 7), query.Int("limit", 5))
+	if err != nil {
+		h.Error(w, err)
+		return
+	}
+	h.Data(w, view)
 }

@@ -1,1 +1,0 @@
-import{b as n,c as i}from"./element-plus-C0a32ZYw.js";const e=n(typeof window>"u"?1440:window.innerWidth);typeof window<"u"&&window.addEventListener("resize",()=>{e.value=window.innerWidth});const o={width:e,isMobile:i(()=>e.value<=768),isTablet:i(()=>e.value<=1024)};export{o as v};
