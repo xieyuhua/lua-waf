@@ -92,6 +92,9 @@ type Config struct {
 	MapTarget string
 	// LuaConfigPath 为 lua-waf 的 config.lua 路径（后台可在线修改）。
 	LuaConfigPath string
+	// RuleImportDir 为「从规则文件同步」的候选目录：
+	// 当后台与 nginx 不在同一台机器（RULE_PATH 不可读）时，用它指向本机的规则目录。
+	RuleImportDir string
 	// LogIngest 为「lua 写 Redis、Go 消费入库」的消费端配置。
 	LogIngest LogIngestConfig
 
@@ -192,6 +195,7 @@ func (l *Loader) defaults() *Config {
 		WafLogDir:     "/www/wwwlogs/waf",
 		MapTarget:     "中国-北京",
 		LuaConfigPath: "/www/server/nginx/x-waf/config.lua",
+		RuleImportDir: "lua-waf/rules",
 
 		LogIngest: LogIngestConfig{
 			Enabled: false,
@@ -229,6 +233,7 @@ func (l *Loader) applyINI(cfg *Config, file *ini.File) {
 
 	waf := file.Section("waf")
 	cfg.RulePath = ensureTrailingSlash(waf.Key("RULE_PATH").MustString(cfg.RulePath))
+	cfg.RuleImportDir = strings.TrimSpace(waf.Key("RULE_IMPORT_DIR").MustString(cfg.RuleImportDir))
 	cfg.WafLogDir = waf.Key("LOG_DIR").MustString(cfg.WafLogDir)
 	cfg.MapTarget = waf.Key("MAP_TARGET").MustString(cfg.MapTarget)
 	cfg.LuaConfigPath = waf.Key("LUA_CONFIG").MustString(cfg.LuaConfigPath)
@@ -308,6 +313,9 @@ func (l *Loader) applyEnv(cfg *Config) {
 	}
 	if v := l.env("WAF_MAP_TARGET"); v != "" {
 		cfg.MapTarget = v
+	}
+	if v := l.env("WAF_RULE_IMPORT_DIR"); v != "" {
+		cfg.RuleImportDir = v
 	}
 	if v := l.env("WAF_LUA_CONFIG"); v != "" {
 		cfg.LuaConfigPath = v

@@ -124,7 +124,7 @@ func New(opts Options) (*App, error) {
 	// 启动时把规则文件与数据库取并集：文件里有的补进库，库里已有的保持不动
 	deps.RuleSync = &service.RuleFileSync{Repo: repos.Rule}
 	deps.Pipeline = &service.RulePipelineService{}
-	if result, err := deps.RuleSync.SyncFromDir(context.Background(), cfg.RulePath); err != nil {
+	if result, err := deps.RuleSync.SyncFromDirs(context.Background(), []string{cfg.RulePath, cfg.RuleImportDir}); err != nil {
 		log.Printf("[warn] 规则文件同步失败: %v", err)
 	} else if result.Added > 0 {
 		log.Printf("[info] 规则文件同步：新增 %d 条，保留 %d 条（目录 %s）", result.Added, result.Kept, result.Dir)

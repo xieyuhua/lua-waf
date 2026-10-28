@@ -47,6 +47,32 @@ type ruleFileItem struct {
 	RuleItem string `json:"RuleItem"`
 }
 
+// SyncFromDirs 依次尝试候选目录，使用第一个可读的目录执行并集同步。
+// 用于「后台与 nginx 不在同一台机器」的场景：优先 RULE_PATH，其次本仓库的规则目录。
+func (s *RuleFileSync) SyncFromDirs(ctx context.Context, dirs []string) (RuleFileSyncResult, error) {
+	tried := make([]string, 0, len(dirs))
+	for _, dir := range dirs {
+		dir = strings.TrimSpace(dir)
+		if dir == "" {
+			continue
+		}
+		if _, err := os.ReadDir(dir); err != nil {
+			tried = append(tried, dir)
+			continue
+		}
+		return s.SyncFromDir(ctx, dir)
+	}
+
+	result := RuleFileSyncResult{}
+	if len(tried) > 0 {
+		result.Dir = tried[0]
+		result.Message = "规则目录不可读，已跳过：" + strings.Join(tried, " / ")
+	} else {
+		result.Message = "未配置规则目录（RULE_PATH / RULE_IMPORT_DIR）"
+	}
+	return result, nil
+}
+
 // SyncFromDir 扫描目录下的 *.rule 文件并与数据库取并集。
 func (s *RuleFileSync) SyncFromDir(ctx context.Context, dir string) (RuleFileSyncResult, error) {
 	result := RuleFileSyncResult{Dir: dir}

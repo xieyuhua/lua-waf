@@ -13,8 +13,10 @@ type RuleHandler struct {
 	Sync  *service.SyncService
 	// RuleSync 负责规则文件与数据库取并集。
 	RuleSync *service.RuleFileSync
-	// RuleDir 为规则目录。
+	// RuleDir 为规则目录（nginx 侧）。
 	RuleDir string
+	// RuleImportDir 为可选的导入目录（后台与 nginx 不同机时使用）。
+	RuleImportDir string
 	// Pipeline 提供检测顺序说明。
 	Pipeline *service.RulePipelineService
 	Writer   response.Writer
@@ -134,7 +136,11 @@ func (h *RuleHandler) syncAll(w http.ResponseWriter, r *http.Request) {
 
 // syncFiles 把规则目录与数据库规则取并集：缺少的新增，已有的保持不动。
 func (h *RuleHandler) syncFiles(w http.ResponseWriter, r *http.Request) {
-	result, err := h.RuleSync.SyncFromDir(r.Context(), h.RuleDir)
+	if h.RuleSync == nil {
+		h.Error(w, service.ErrInvalid.New("规则文件同步未启用：服务端缺少规则同步组件"))
+		return
+	}
+	result, err := h.RuleSync.SyncFromDirs(r.Context(), []string{h.RuleDir, h.RuleImportDir})
 	if err != nil {
 		h.Error(w, err)
 		return
@@ -144,6 +150,10 @@ func (h *RuleHandler) syncFiles(w http.ResponseWriter, r *http.Request) {
 
 // pipeline 返回 WAF 检测与拦截顺序（只读说明）。
 func (h *RuleHandler) pipeline(w http.ResponseWriter, r *http.Request) {
+	if h.Pipeline == nil {
+		h.Error(w, service.ErrInternal.New("检测顺序说明未启用"))
+		return
+	}
 	result, err := h.Pipeline.Pipeline(r.Context())
 	if err != nil {
 		h.Error(w, err)

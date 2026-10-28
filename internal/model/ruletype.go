@@ -26,7 +26,7 @@ var Catalog = RuleCatalog{types: []RuleType{
 	{Key: "cookie", Name: "Cookie 规则", Group: "拦截策略", Desc: "针对 Cookie 头的注入特征匹配", File: "cookie.rule"},
 	{Key: "url", Name: "URL 规则", Group: "拦截策略", Desc: "针对请求路径的特征匹配", File: "url.rule"},
 	{Key: "useragent", Name: "User-Agent 规则", Group: "拦截策略", Desc: "拦截扫描器、爬虫类 UA", File: "useragent.rule"},
-	{Key: "headers", Name: "Header 规则", Group: "拦截策略", Desc: "针对自定义请求头的特征匹配", File: "headers.rule"},
+	{Key: "header", Name: "请求头规则", Group: "拦截策略", Desc: "Host 注入、代理头伪造、头部 JNDI、头内注入等请求头特征匹配", File: "header.rule"},
 	{Key: "blackip", Name: "IP 黑名单", Group: "访问控制", Desc: "命中即拦截的来源 IP", File: "blackip.rule"},
 	{Key: "whiteip", Name: "IP 白名单", Group: "访问控制", Desc: "不受 WAF 检测的来源 IP", File: "whiteip.rule"},
 	{Key: "whiteUrl", Name: "URL 白名单", Group: "访问控制", Desc: "免检测的请求路径", File: "whiteUrl.rule"},
