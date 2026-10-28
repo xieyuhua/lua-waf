@@ -100,6 +100,18 @@
 返回 WAF 检测与拦截顺序（只读说明，顺序与 `lua-waf/waf.lua` 的 `check()` 一致）：
 每步包含 `order`、`title`、`action`（allow/deny/inspect）、`rule_file`、`switch`（config.lua 开关）、`desc`，另有 `notes` 说明串行/白名单优先级等要点。
 
+### GET /api/rules/stats
+
+规则命中统计（按日志 `rule_tag` 聚合，倒序）：`?days=7&limit=20` → `{ days, items: [{ rule_tag, count }] }`。
+
+说明：日志里的 `rule_tag` 存的是命中规则的标识（内置规则为 `类型->名称`，自定义规则为正则内容），
+因此可用于发现高频规则、评估新规则的收益，以及排查疑似误杀。
+
+### PUT /api/rules/{id}/enabled
+
+启用/停用一条规则：`{ "enabled": false }`。停用后规则**仍保留在库中**，但下发规则文件时会被跳过，
+即对 lua 立即不生效；重新启用后再次下发即可恢复。`rules.enabled` 列默认 1，老库升级时自动补列且原有规则保持启用。
+
 ### POST /api/rules/sync-files
 
 把 `RULE_PATH` 下的 `*.rule` 与数据库规则**取并集**：文件里有、库里没有的新增；库里已有的保持原样（不覆盖、不删除）。
@@ -312,6 +324,18 @@
 
 返回 WAF 检测与拦截顺序（只读说明，顺序与 `lua-waf/waf.lua` 的 `check()` 一致）：
 每步包含 `order`、`title`、`action`（allow/deny/inspect）、`rule_file`、`switch`（config.lua 开关）、`desc`，另有 `notes` 说明串行/白名单优先级等要点。
+
+### GET /api/rules/stats
+
+规则命中统计（按日志 `rule_tag` 聚合，倒序）：`?days=7&limit=20` → `{ days, items: [{ rule_tag, count }] }`。
+
+说明：日志里的 `rule_tag` 存的是命中规则的标识（内置规则为 `类型->名称`，自定义规则为正则内容），
+因此可用于发现高频规则、评估新规则的收益，以及排查疑似误杀。
+
+### PUT /api/rules/{id}/enabled
+
+启用/停用一条规则：`{ "enabled": false }`。停用后规则**仍保留在库中**，但下发规则文件时会被跳过，
+即对 lua 立即不生效；重新启用后再次下发即可恢复。`rules.enabled` 列默认 1，老库升级时自动补列且原有规则保持启用。
 
 ### POST /api/rules/sync-files
 

@@ -76,6 +76,50 @@ func (r *logRepo) List(ctx context.Context, q model.LogQuery) ([]model.WafLog, i
 	return pager[model.WafLog]{items: items}.Slice(q.ListQuery), int64(len(items)), nil
 }
 
+// TagStats 按命中规则聚合最近 days 天的日志。
+func (r *logRepo) TagStats(ctx context.Context, days int, limit int) ([]model.TagStat, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 30
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	r.store.mu.RLock()
+	defer r.store.mu.RUnlock()
+
+	sinceText := ""
+	if days > 0 {
+		sinceText = time.Now().AddDate(0, 0, -days).Format("2006-01-02")
+	}
+
+	counts := map[string]int64{}
+	for _, item := range r.store.logs {
+		if strings.TrimSpace(item.RuleTag) == "" {
+			continue
+		}
+		if sinceText != "" && item.LocalTime < sinceText {
+			continue
+		}
+		counts[item.RuleTag]++
+	}
+
+	stats := make([]model.TagStat, 0, len(counts))
+	for tag, count := range counts {
+		stats = append(stats, model.TagStat{RuleTag: tag, Count: count})
+	}
+	sort.Slice(stats, func(i, j int) bool {
+		if stats[i].Count == stats[j].Count {
+			return stats[i].RuleTag < stats[j].RuleTag
+		}
+		return stats[i].Count > stats[j].Count
+	})
+	if len(stats) > limit {
+		stats = stats[:limit]
+	}
+	return stats, nil
+}
+
 // Count 返回日志总数。
 func (r *logRepo) Count(ctx context.Context) (int64, error) {
 	if err := ctx.Err(); err != nil {

@@ -23,6 +23,8 @@ type LogRepository interface {
 	List(ctx context.Context, q model.LogQuery) ([]model.WafLog, int64, error)
 	// BatchCreate 批量写入攻击日志（供 Redis 消费者落库），返回写入条数。
 	BatchCreate(ctx context.Context, items []model.WafLog) (int64, error)
+	// TagStats 按命中规则聚合最近 days 天的日志（days<=0 表示全部时间）。
+	TagStats(ctx context.Context, days int, limit int) ([]model.TagStat, error)
 	// Count 返回日志总数。
 	Count(ctx context.Context) (int64, error)
 	// CountOnDay 返回指定日期的日志条数。

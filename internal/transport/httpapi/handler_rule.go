@@ -26,6 +26,8 @@ func (h *RuleHandler) Register(mux *http.ServeMux, routes Routes) {
 	mux.HandleFunc("GET /api/rules/types", routes.Private(h.types))
 	mux.HandleFunc("GET /api/rules", routes.Private(h.list))
 	mux.HandleFunc("GET /api/rules/pipeline", routes.Private(h.pipeline))
+	mux.HandleFunc("GET /api/rules/stats", routes.Private(h.stats))
+	mux.HandleFunc("PUT /api/rules/{id}/enabled", routes.Private(h.setEnabled))
 	mux.HandleFunc("POST /api/rules/sync-files", routes.Private(h.syncFiles))
 	mux.HandleFunc("POST /api/rules", routes.Private(h.create))
 	mux.HandleFunc("PUT /api/rules/{id}", routes.Private(h.update))
@@ -147,4 +149,36 @@ func (h *RuleHandler) pipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.Data(w, result)
+}
+
+// stats 返回规则命中统计（默认最近 7 天）。
+func (h *RuleHandler) stats(w http.ResponseWriter, r *http.Request) {
+	query := NewQueryParams(r)
+	days := query.Int("days", 7)
+	limit := query.Int("limit", 20)
+
+	items, err := h.Rules.TagStats(r.Context(), days, limit)
+	if err != nil {
+		h.Error(w, err)
+		return
+	}
+	h.Data(w, map[string]any{"days": days, "items": items})
+}
+
+// setEnabled 启用或停用一条规则。
+func (h *RuleHandler) setEnabled(w http.ResponseWriter, r *http.Request) {
+	payload := struct {
+		Enabled bool `json:"enabled"`
+	}{}
+	if err := h.Writer.Bind(r, &payload); err != nil {
+		h.BindError(w)
+		return
+	}
+
+	rule, err := h.Rules.SetEnabled(r.Context(), PathParams{Request: r}.Int64("id"), payload.Enabled)
+	if err != nil {
+		h.Error(w, err)
+		return
+	}
+	h.Data(w, rule)
 }

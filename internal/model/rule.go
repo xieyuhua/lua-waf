@@ -5,6 +5,9 @@ type Rule struct {
 	Id       int64  `xorm:"pk autoincr 'id'" json:"id"`
 	RuleType string `xorm:"varchar(25) not null 'rule_type'" json:"rule_type"`
 	RuleItem string `xorm:"varchar(255) not null 'rule_item'" json:"rule_item"`
+	// Enabled 表示是否启用；停用后仍保留在库中，但不会再下发到规则文件。
+	// 数据库默认 1，保证新增该列时老数据自动为启用状态。
+	Enabled bool `xorm:"'enabled' notnull default 1" json:"enabled"`
 }
 
 // RuleFileItem 是下发给 openresty 的规则文件结构。

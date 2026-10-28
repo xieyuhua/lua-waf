@@ -16,6 +16,8 @@ type RuleRepository interface {
 	Create(ctx context.Context, rule *model.Rule) error
 	// Update 更新规则内容。
 	Update(ctx context.Context, rule *model.Rule) error
+	// SetEnabled 启用或停用规则。
+	SetEnabled(ctx context.Context, id int64, enabled bool) error
 	// Delete 删除规则。
 	Delete(ctx context.Context, id int64) error
 	// CountByType 返回各规则类型的条数。

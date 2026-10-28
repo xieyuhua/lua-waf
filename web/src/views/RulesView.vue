@@ -28,6 +28,34 @@ const currentType = computed(() => ruleStore.find(currentKey.value) || { name: c
 const ruleGroups = computed(() => ruleStore.grouped())
 
 /** 加载当前类型的规则 */
+// 规则命中统计（最近 N 天，按 rule_tag 聚合）
+const ruleStats = ref([])
+const statsDays = ref(7)
+
+// 规则内容 → 命中次数 映射
+const hitMap = computed(() => {
+  const map = {}
+  for (const item of ruleStats.value) {
+    map[item.rule_tag] = (map[item.rule_tag] || 0) + item.count
+  }
+  return map
+})
+
+/** 某条规则的命中次数 */
+function hitCount(ruleItem) {
+  return hitMap.value[ruleItem] || 0
+}
+
+/** 加载命中统计 */
+async function loadStats() {
+  try {
+    const data = await ruleApi.stats({ days: statsDays.value, limit: 12 })
+    ruleStats.value = data.items || []
+  } catch (error) {
+    ruleStats.value = []
+  }
+}
+
 // WAF 检测与拦截顺序（只读说明，来源于后端 /api/rules/pipeline）
 const pipeline = ref(null)
 const pipelineExpanded = ref(true)
@@ -86,6 +114,17 @@ async function syncFromFiles() {
     ElMessage.error(error.message || '同步失败')
   } finally {
     syncingFiles.value = false
+  }
+}
+
+/** 启用/停用规则（停用后不再下发到 lua，对线上立即不生效） */
+async function toggleRule(row, enabled) {
+  try {
+    await ruleApi.setEnabled(row.id, enabled)
+    row.enabled = enabled
+    ElMessage.success(enabled ? '规则已启用（需下发后生效）' : '规则已停用（需下发后生效）')
+  } catch (error) {
+    ElMessage.error(error.message || '操作失败')
   }
 }
 
@@ -170,6 +209,7 @@ onMounted(async () => {
   await ruleStore.load()
   load()
   loadPipeline()
+  loadStats()
 })
 </script>
 
@@ -187,6 +227,27 @@ onMounted(async () => {
       </div>
     </div>
 
+    <!-- 规则命中统计 -->
+    <div v-if="ruleStats.length" class="waf-card" style="margin-bottom: 16px">
+      <div class="waf-card-head">
+        <div class="waf-card-title"><span class="bar"></span> 规则命中 Top</div>
+        <div style="display: flex; align-items: center; gap: 8px">
+          <el-radio-group v-model="statsDays" size="small" @change="loadStats">
+            <el-radio-button :value="1">今天</el-radio-button>
+            <el-radio-button :value="7">7 天</el-radio-button>
+            <el-radio-button :value="30">30 天</el-radio-button>
+          </el-radio-group>
+          <span class="waf-muted" style="font-size: 11.5px">命中次数来自日志 rule_tag</span>
+        </div>
+      </div>
+      <div class="stat-list">
+        <div v-for="item in ruleStats" :key="item.rule_tag" class="stat-item">
+          <div class="stat-bar" :style="{ width: `${Math.max(4, (item.count / ruleStats[0].count) * 100)}%` }"></div>
+          <span class="stat-count">{{ item.count }}</span>
+          <code class="waf-mono stat-tag">{{ item.rule_tag }}</code>
+        </div>
+      </div>
+    </div>
     <!-- WAF 检测与拦截顺序（只读说明） -->
     <div v-if="pipeline" class="waf-card" style="margin-bottom: 16px">
       <div class="waf-card-head">
@@ -269,7 +330,22 @@ onMounted(async () => {
             <div class="rule-text waf-mono">{{ row.rule_item }}</div>
           </template>
         </el-table-column>
-        <el-table-column label="操作" :width="viewport.isMobile.value ? 120 : 150" align="right" fixed="right">
+        <el-table-column label="启用" width="90" align="center">
+        <template #default="{ row }">
+          <el-switch :model-value="row.enabled !== false" @update:model-value="(value) => toggleRule(row, value)" />
+        </template>
+      </el-table-column>
+      <el-table-column
+        v-if="!viewport.isMobile.value"
+        label="命中(7天)"
+        width="110"
+        align="right"
+      >
+        <template #default="{ row }">
+          <span :class="hitCount(row.rule_item) ? 'hit-count' : 'waf-muted'">{{ hitCount(row.rule_item) || '-' }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" :width="viewport.isMobile.value ? 120 : 150" align="right" fixed="right">
           <template #default="{ row }">
             <el-button text type="primary" @click="openEdit(row)">编辑</el-button>
             <el-button text type="danger" @click="remove(row)">删除</el-button>
@@ -299,6 +375,53 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.stat-list {
+  display: grid;
+  gap: 6px;
+}
+
+.stat-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--waf-surface-2);
+  overflow: hidden;
+}
+
+.stat-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, rgba(99, 102, 241, 0.22), rgba(99, 102, 241, 0.06));
+}
+
+.stat-count {
+  position: relative;
+  flex: 0 0 64px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: 12.5px;
+  color: var(--waf-primary);
+}
+
+.stat-tag {
+  position: relative;
+  font-size: 11.5px;
+  color: var(--waf-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hit-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--waf-primary);
+}
 .pipeline-list {
   display: grid;
   gap: 8px;

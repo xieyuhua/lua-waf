@@ -38,3 +38,11 @@ type DateStat struct {
 
 // TableName 固定表名（该表由 openresty 侧写入，后台只读）。
 func (WafLog) TableName() string { return "waf_log" }
+
+// TagStat 是按命中规则（rule_tag）聚合的统计条目。
+type TagStat struct {
+	// RuleTag 为命中规则标识（来自日志的 rule_tag 字段）。
+	RuleTag string `json:"rule_tag"`
+	// Count 为命中次数。
+	Count int64 `json:"count"`
+}

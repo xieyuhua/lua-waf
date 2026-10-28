@@ -58,8 +58,12 @@ func (m *Manager) WriteRules(grouped map[string][]model.Rule) ([]string, error) 
 	}
 
 	for ruleType, rules := range grouped {
+		// 只下发启用中的规则；停用的规则保留在库中但不再生效
 		items := make([]model.RuleFileItem, 0, len(rules))
 		for _, rule := range rules {
+			if !rule.Enabled {
+				continue
+			}
 			items = append(items, rule.ToFileItem())
 		}
 		payload, err := json.Marshal(items)

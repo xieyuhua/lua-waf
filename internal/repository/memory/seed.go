@@ -68,6 +68,7 @@ func (s *Store) seedDemo() {
 	}
 
 	for _, rule := range model.DefaultRules {
+		rule.Enabled = true
 		s.rules = append(s.rules, rule)
 		if rule.Id > s.ruleSeq {
 			s.ruleSeq = rule.Id

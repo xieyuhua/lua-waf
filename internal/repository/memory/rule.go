@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"fmt"
 	"sort"
 
 	"wafadmin/internal/model"
@@ -63,6 +64,23 @@ func (r *ruleRepo) Create(ctx context.Context, rule *model.Rule) error {
 }
 
 // Update 更新规则内容。
+// SetEnabled 启用或停用规则。
+func (r *ruleRepo) SetEnabled(ctx context.Context, id int64, enabled bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	r.store.mu.Lock()
+	defer r.store.mu.Unlock()
+
+	for i := range r.store.rules {
+		if r.store.rules[i].Id == id {
+			r.store.rules[i].Enabled = enabled
+			return nil
+		}
+	}
+	return fmt.Errorf("规则 %d 不存在", id)
+}
 func (r *ruleRepo) Update(ctx context.Context, rule *model.Rule) error {
 	if err := ctx.Err(); err != nil {
 		return err

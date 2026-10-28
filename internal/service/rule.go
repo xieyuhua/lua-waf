@@ -30,6 +30,8 @@ type RuleService struct {
 	Rules   repository.RuleRepository
 	Catalog model.RuleCatalog
 	Nginx   *nginx.Manager
+	// Logs 用于统计规则命中次数。
+	Logs repository.LogRepository
 }
 
 // Overview 返回按类型分组的规则数量，用于生成规则子菜单。
@@ -82,7 +84,7 @@ func (s *RuleService) Create(ctx context.Context, payload RulePayload) (*model.R
 		return nil, err
 	}
 
-	rule := &model.Rule{RuleType: ruleType, RuleItem: item}
+	rule := &model.Rule{RuleType: ruleType, RuleItem: item, Enabled: true}
 	if err := s.Rules.Create(ctx, rule); err != nil {
 		return nil, ErrInternal.Wrap(err, "新增规则失败")
 	}
@@ -90,6 +92,57 @@ func (s *RuleService) Create(ctx context.Context, payload RulePayload) (*model.R
 }
 
 // Update 修改规则内容。
+// SetEnabled 启用或停用一条规则。
+// 停用后规则保留在库中，但不会下发到规则文件，因此对 lua 侧不再生效。
+func (s *RuleService) SetEnabled(ctx context.Context, id int64, enabled bool) (*model.Rule, error) {
+	if id <= 0 {
+		return nil, ErrInvalid.New("规则 ID 非法")
+	}
+	rule, err := s.Rules.Get(ctx, id)
+	if err != nil {
+		return nil, ErrNotFound.New("规则不存在")
+	}
+
+	if err := s.Rules.SetEnabled(ctx, id, enabled); err != nil {
+		return nil, ErrInternal.Wrap(err, "更新规则状态失败")
+	}
+	rule.Enabled = enabled
+	return rule, nil
+}
+
+// TagStats 返回带命中次数的规则列表（按命中次数倒序）。
+// 命中次数来自日志的 rule_tag，用于发现高频规则与疑似误杀。
+func (s *RuleService) TagStats(ctx context.Context, days int, limit int) ([]RuleHitStat, error) {
+	if days < 0 {
+		days = 0
+	}
+	if days == 0 {
+		days = 7
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+
+	stats, err := s.Logs.TagStats(ctx, days, limit)
+	if err != nil {
+		return nil, ErrInternal.Wrap(err, "统计规则命中失败")
+	}
+
+	result := make([]RuleHitStat, 0, len(stats))
+	for _, item := range stats {
+		result = append(result, RuleHitStat{RuleTag: item.RuleTag, Count: item.Count})
+	}
+	return result, nil
+}
+
+// RuleHitStat 是单条规则的命中统计。
+type RuleHitStat struct {
+	// RuleTag 为日志中的命中标识。
+	RuleTag string `json:"rule_tag"`
+	// Count 为命中次数。
+	Count int64 `json:"count"`
+}
+
 func (s *RuleService) Update(ctx context.Context, id int64, item string) (*model.Rule, error) {
 	rule, err := s.Rules.Get(ctx, id)
 	if err != nil {

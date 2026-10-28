@@ -133,7 +133,7 @@ func (s *RuleFileSync) SyncFromDir(ctx context.Context, dir string) (RuleFileSyn
 
 	newRules := make([]model.Rule, 0, len(pending))
 	for _, item := range pending {
-		newRules = append(newRules, model.Rule{RuleType: item.Type, RuleItem: item.Item})
+		newRules = append(newRules, model.Rule{RuleType: item.Type, RuleItem: item.Item, Enabled: true})
 	}
 	if err := s.Repo.BatchCreate(ctx, newRules); err != nil {
 		return result, ErrInternal.Wrap(err, "写入新增规则失败")

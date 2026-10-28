@@ -2,6 +2,7 @@ package mysql
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"time"
 
@@ -86,6 +87,38 @@ func (r *logRepo) List(ctx context.Context, q model.LogQuery) ([]model.WafLog, i
 		return nil, 0, err
 	}
 	return items, total, nil
+}
+
+// TagStats 按命中规则聚合最近 days 天的日志。
+func (r *logRepo) TagStats(ctx context.Context, days int, limit int) ([]model.TagStat, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 30
+	}
+	sqlText := "SELECT rule_tag, COUNT(*) AS total FROM `waf_log` WHERE rule_tag <> ''"
+	args := make([]any, 0, 1)
+	if days > 0 {
+		sqlText += " AND local_time >= ?"
+		args = append(args, time.Now().AddDate(0, 0, -days))
+	}
+	sqlText += " GROUP BY rule_tag ORDER BY total DESC LIMIT ?"
+	args = append(args, limit)
+
+	defer r.observer.Trace(ctx, "log.tag_stats", sqlText)()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	rows, err := r.engine.SQL(sqlText, args...).QueryString()
+	if err != nil {
+		return nil, err
+	}
+
+	stats := make([]model.TagStat, 0, len(rows))
+	for _, row := range rows {
+		count, _ := strconv.ParseInt(row["total"], 10, 64)
+		stats = append(stats, model.TagStat{RuleTag: row["rule_tag"], Count: count})
+	}
+	return stats, nil
 }
 
 // Count 返回日志总数。

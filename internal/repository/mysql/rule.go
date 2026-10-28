@@ -73,6 +73,23 @@ func (r *ruleRepo) Create(ctx context.Context, rule *model.Rule) error {
 	return nil
 }
 
+// SetEnabled 启用或停用规则。
+func (r *ruleRepo) SetEnabled(ctx context.Context, id int64, enabled bool) error {
+	defer r.observer.Trace(ctx, "rule.set_enabled", "UPDATE rules SET enabled = ? WHERE id = ?")()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	affected, err := r.engine.Table(new(model.Rule)).Where("id = ?", id).Update(map[string]any{"enabled": enabled})
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return fmt.Errorf("规则 %d 不存在", id)
+	}
+	return nil
+}
+
 // Update 更新规则内容。
 func (r *ruleRepo) Update(ctx context.Context, rule *model.Rule) error {
 	defer r.observer.Trace(ctx, "rule.update", "UPDATE rules SET rule_item = ? WHERE id = ?")()

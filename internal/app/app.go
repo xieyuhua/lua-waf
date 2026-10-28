@@ -233,7 +233,7 @@ func (b *builder) services(repos repository.Repositories) (*httpapi.Deps, error)
 	settings := &service.SettingService{Repo: repos.Setting}
 
 	sites := &service.SiteService{Sites: repos.Site, Nginx: nginxManager, PageSize: b.cfg.PageSize}
-	rules := &service.RuleService{Rules: repos.Rule, Catalog: model.Catalog, Nginx: nginxManager}
+	rules := &service.RuleService{Rules: repos.Rule, Catalog: model.Catalog, Nginx: nginxManager, Logs: repos.Log}
 	users := &service.UserService{Users: repos.User, Hasher: hasher, PageSize: b.cfg.PageSize}
 	logs := &service.LogService{Logs: repos.Log, PageSize: b.cfg.PageSize}
 	slow := &service.SlowSQLService{
