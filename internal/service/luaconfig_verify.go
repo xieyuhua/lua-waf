@@ -17,6 +17,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"wafadmin/pkg/redis"
 )
 
 // LuaVerifyItem 是一条自检结果。
@@ -145,6 +148,52 @@ func (s *LuaConfigService) Verify(ctx context.Context) (*LuaVerifyView, error) {
 		}
 	}
 
+	// 4.1) 日志目录「最近是否还在被写」——直接回答「配置了 redis 为什么还写文件」
+	if dir := strings.TrimSpace(values["config_log_dir"]); dir != "" {
+		if newest, name, err := newestFile(dir); err == nil && !newest.IsZero() {
+			age := time.Since(newest)
+			if mode != "file" && age < 10*time.Minute {
+				add("log_dir_write", "日志目录写入", "error",
+					fmt.Sprintf("当前模式为 %s，但 %s 下最近仍有写入（%s，%s 前）。说明日志仍被写到文件：要么是 log_sink 回落（看 nginx error.log 的「[waf] Redis 队列写入失败」），要么这个目录其实是 nginx 的 access_log 目录",
+						defaultString(mode, "未知"), dir, name, age.Round(time.Second)))
+			} else if mode != "file" {
+				add("log_dir_write", "日志目录写入", "ok",
+					fmt.Sprintf("%s 下最近一次写入在 %s 前（%s），已停止写文件", dir, age.Round(time.Minute), name))
+			} else {
+				add("log_dir_write", "日志目录写入", "ok", fmt.Sprintf("file 模式，最近写入 %s（%s 前）", name, age.Round(time.Minute)))
+			}
+		} else if err != nil {
+			add("log_dir_write", "日志目录写入", "warn", "无法读取日志目录 "+dir+"（若 nginx 不在本机可忽略）："+err.Error())
+		}
+	}
+
+	// 4.2) redis 模式下顺带报告队列长度：>0 说明 nginx 确实在写队列
+	if mode == "redis" {
+		redisPort := values["config_redis_port"]
+		if redisPort == "" {
+			redisPort = "6379"
+		}
+		address := fmt.Sprintf("%s:%s", values["config_redis_host"], redisPort)
+		if client, err := redis.Dial(redis.Options{
+			Addr:     address,
+			Password: values["config_redis_password"],
+			DB:       atoiDefault(values["config_redis_db"], 0),
+			Timeout:  3 * time.Second,
+		}); err == nil {
+			key := defaultString(values["config_redis_list_key"], "waf:logs")
+			length, lerr := client.LLen(key)
+			_ = client.Close()
+			if lerr == nil {
+				level := "ok"
+				message := fmt.Sprintf("队列 %s 当前长度 %d（有攻击流量时应持续增长）", key, length)
+				if length == 0 {
+					level = "warn"
+					message += "；若线上有攻击但仍为 0，说明 nginx 没有写队列（模式没生效或回落写文件）"
+				}
+				add("redis_queue", "Redis 队列", level, message)
+			}
+		}
+	}
 	// 5) 汇总结论
 	view.Verdict = "ok"
 	for _, item := range view.Items {
@@ -175,4 +224,29 @@ func sameFile(left, right string) bool {
 		return left == right
 	}
 	return strings.EqualFold(filepath.Clean(absLeft), filepath.Clean(absRight))
+}
+
+// newestFile 返回目录下最新的普通文件及其修改时间。
+func newestFile(dir string) (time.Time, string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return time.Time{}, "", err
+	}
+
+	var newest time.Time
+	var name string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		info, infoErr := entry.Info()
+		if infoErr != nil {
+			continue
+		}
+		if info.ModTime().After(newest) {
+			newest = info.ModTime()
+			name = entry.Name()
+		}
+	}
+	return newest, name, nil
 }

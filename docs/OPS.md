@@ -109,6 +109,22 @@ Redis 建议：开启 AOF（`appendonly yes`），内存策略设为 `noeviction
 验证是否生效：`redis-cli -a <口令> LLEN waf:logs` 数值在涨 = nginx 已在写队列；
 `ls -l <LOG_DIR>` 不再新增文件 = 文件模式已停止。
 
+**现在可以在界面上一步看到结论**：WAF 配置 →「生效自检」，它会直接告诉你
+
+- 日志模式（文件里实际的 `config_log_mode` 值）；
+- Redis 是否连通、队列 `waf:logs` 当前长度（有攻击时应增长）；
+- **日志目录最近是否还有新文件**（模式为 redis/mysql 却仍在 10 分钟内有写入 → 判定为「仍在写文件」，
+  并提示这是 log_sink 回落，还是该目录其实是 nginx 的 access_log 目录）。
+
+同时 lua 侧新增了一条提示：每个 worker 首次写日志时会打印
+
+```
+[waf] 日志输出模式=redis（file=/www/wwwlogs/waf；redis=127.0.0.1:6379 db=0；…）
+```
+
+`grep '日志输出模式' /www/server/nginx/logs/error.log` 就能确认**nginx 实际读到的模式**——
+如果这里显示 `file`，说明 nginx 加载的 config.lua 不是后台改的那一份（或被旧文件覆盖）。
+
 ### 4.3 消费者没生效的排查
 
 ```bash

@@ -156,10 +156,27 @@ function _M.requeue_memory(records)
     end
 end
 
+-- 首次写入时把实际生效的模式打印一次，便于排查「配了 redis 却还在写文件」
+-- 只在每个 worker 首次写日志时输出，不影响性能
+local announced = false
+
+local function announce(mode)
+    if announced then
+        return
+    end
+    announced = true
+    ngx.log(ngx.WARN, "[waf] 日志输出模式=", tostring(mode),
+        "（file=", tostring(config.config_log_dir),
+        "；redis=", tostring(config.config_redis_host), ":", tostring(config.config_redis_port),
+        " db=", tostring(config.config_redis_db),
+        "；若模式为 non-file 但仍出现本文件写入，请检查上方是否有「写入失败，回落写文件」告警）")
+end
+
 -- 统一入口：按配置的日志模式写出
 function _M.write(record)
     local normalized = _M.normalize(record)
     local mode = config.config_log_mode or "file"
+    announce(mode)
 
     if mode == "mysql" then
         local payload = cjson.encode(normalized)
