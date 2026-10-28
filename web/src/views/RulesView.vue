@@ -96,7 +96,8 @@ async function syncFromFiles() {
     ElMessage.success(`规则文件同步完成：${parts.join('，')}`)
     if (result.message) ElMessage.info(result.message)
     await load()
-    await loadTypes()
+    // 同步可能带来新的规则类型与计数，刷新类型列表（侧边栏子菜单）
+    await ruleStore.load(true)
   } catch (error) {
     ElMessage.error(error.message || '同步失败')
   } finally {
