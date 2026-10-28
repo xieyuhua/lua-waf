@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 
+	"wafadmin/internal/config"
 	"wafadmin/internal/repository"
 )
 
@@ -87,6 +88,8 @@ type LuaConfigService struct {
 	Reloader LuaReloader
 	// Logs 用于「生效自检」里查最近一条攻击日志，判断日志链路是否真的在入库（可为空）。
 	Logs repository.LogRepository
+	// Cfg 为后台运行配置（用于自检里核对 [log] 消费相关配置）。
+	Cfg *config.Config
 
 	// mu 串行化读写，避免并发保存互相覆盖。
 	mu sync.Mutex

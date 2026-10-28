@@ -113,13 +113,15 @@ lua-waf 管理台
 URL / Cookie / 参数 / 请求头在匹配前会做 `util.normalize()`（多轮 URL 解码 + `%uXXXX` + HTML 实体 + 去 SQL 注释）。
 详见 [docs/RULES.md](docs/RULES.md)。
 
-### 5.2 日志入库链路（三选一）
+### 5.2 日志入库链路（lua 只写，Go 负责入库）
 
-| 模式 | `config.lua` 设置 | 说明 |
+| 模式 | 配置 | 说明 |
 |---|---|---|
-| 文件 | `config_log_mode = "file"` | lua 写本地文件，后台不读 |
-| nginx 直连 MySQL | `config_log_mode = "mysql"` | lua 内存队列 + 定时批量写库，简单，但高并发下会拖慢 nginx |
-| Redis + 后台消费 | `config_log_mode = "redis"` + `config_redis_consume = "off"` + `[log] INGEST_ENABLED = on` | lua 只写队列，`wafadmin` 消费入库（at-least-once），高并发推荐 |
+| 文件 | `config_log_mode = "file"` | lua 写本地日志文件，后台不读 |
+| Redis + 后台消费 | `config_log_mode = "redis"` + `conf/app.ini` 的 `[log] INGEST_ENABLED = on` | lua 只 RPUSH 进队列，`wafadmin` 批量写 MySQL（at-least-once）——**推荐** |
+
+> lua 侧已**移除直连 MySQL** 的能力（不再需要 `lua-resty-mysql`）：落库统一交给后台，
+> 削峰、可观察（队列长度 / 失败数 / 最近入库时间），也不会因为数据库抖动拖慢 nginx。
 
 看板「日志入库队列」卡片会实时显示待处理 / 处理中 / 已入库 / 失败、队列键与最近错误。
 

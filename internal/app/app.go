@@ -135,6 +135,7 @@ func New(opts Options) (*App, error) {
 	// lua-waf config.lua 在线编辑：保存后可用 nginx reload 生效
 	deps.LuaConfig = &service.LuaConfigService{
 		Logs:     repos.Log,
+		Cfg:      cfg,
 		Path:     cfg.LuaConfigPath,
 		Reloader: builder.nginxManager(),
 	}
@@ -263,7 +264,8 @@ func (b *builder) services(repos repository.Repositories) (*httpapi.Deps, error)
 		Logs:  logs,
 		Dashboard: &service.DashboardService{
 			Sites: repos.Site, Rules: repos.Rule, Users: repos.User,
-			Logs: repos.Log, Slow: repos.SlowSQL, PageSize: b.cfg.PageSize,
+			Logs: repos.Log,
+			Slow: repos.SlowSQL, PageSize: b.cfg.PageSize,
 		},
 		SlowSQL:  slow,
 		AI:       &service.AIService{Settings: settings, Logs: repos.Log, SlowSQLs: repos.SlowSQL, Client: &http.Client{Timeout: 120 * time.Second}, Cache: &service.AnalyzeCache{}},

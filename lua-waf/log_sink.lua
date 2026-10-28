@@ -1,33 +1,27 @@
 --[[
     日志输出统一入口（log sink）
 
-    两种输出模式，由 config.config_log_mode 控制：
+    lua 侧只做「判定 + 输出」，两种输出模式由 config.config_log_mode 控制：
 
-      1. file  —— 直接追加写本地日志文件（与 1.x 行为一致，供采集器/rsyslog 收集）
-      2. mysql —— 高并发异步：先写入 ngx.shared.waf_log_queue 内存队列，
-                  由 ngx.timer 定时批量取出去重后 INSERT 到 MySQL
-      3. redis —— 高并发异步：先 RPUSH 到 Redis 列表，由 ngx.timer 定时 LPOP
-                  批量取出后 INSERT 到 MySQL（便于跨机器汇聚、削峰）
+      1. file  —— 追加写本地日志文件（按天分文件，便于 rsyslog / 采集器收集）
+      2. redis —— 把一条日志 JSON RPUSH 到 Redis 列表（config_redis_list_key），
+                  由后台 wafadmin 的消费者批量写入 MySQL（at-least-once）
 
-    可靠性约定：
-      - 请求链路上绝不阻塞：落库全部在 timer（轻线程）中完成；
-      - 队列满 / Redis 不可用 / 共享内存未声明时，自动回落到文件，绝不丢日志；
-      - 落库失败会把本批次重新入队，等待下一轮重试（内存模式）或重新 push 回 Redis。
+    设计约定：
+      - lua 侧**不直连 MySQL**：落库统一交给后台 Go 进程（削峰 + 可观测）。
+      - 请求链路绝不阻塞：写 Redis 只是发一条命令，失败也不抛异常。
+      - 写 Redis 失败时回落写文件，日志不丢；同时打 WARN 便于排查
+        （常见原因：缺 resty.redis、Redis 地址/口令错、Redis 不可用）。
 
-    需要的共享内存（nginx.conf）：
-      lua_shared_dict waf_log_queue 20m;   -- 日志缓冲队列（lpush/rpush 需要 openresty >= 0.10.6）
-      lua_shared_dict waf_log_meta   1m;   -- 计数器与落库锁
+    需要的共享内存（nginx.conf；file 模式不需要日志相关的 dict）：
+      lua_shared_dict limit 100m;      -- CC / 自动封禁计数
+      lua_shared_dict waf_bans 20m;    -- 自动封禁表
 ]]
 
 local config = require("config")
 local cjson = require("cjson.safe")
 
 local _M = {}
-
--- 共享内存与队列键名
-_M.QUEUE_DICT = "waf_log_queue"
-_M.META_DICT = "waf_log_meta"
-_M.QUEUE_KEY = "logs"
 
 -- 各字段入库前的最大长度（与 waf_log 表字段长度保持一致）
 local LIMITS = {
@@ -70,17 +64,24 @@ function _M.normalize(record)
     }
 end
 
--- 追加写本地日志文件
+-- 写本地日志文件（按天分文件）
 function _M.write_file(record)
-    local log_dir = config.config_log_dir
-    local path = string.format("%s/%s_waf.log", log_dir, "x")
     local ok, err = pcall(function()
-        local file = io.open(path, "a+")
-        if file == nil then
+        local log_dir = config.config_log_dir
+        local day = string.sub(ngx.localtime(), 1, 10)
+        local path = log_dir .. day .. ".log"
+
+        local payload = cjson.encode(record)
+        if payload == nil then
             return
         end
-        file:write(cjson.encode(record) or "", "\n")
-        file:flush()
+
+        local file = io.open(path, "a+")
+        if file == nil then
+            ngx.log(ngx.ERR, "[waf] 打开日志文件失败: ", path)
+            return
+        end
+        file:write(payload, "\n")
         file:close()
     end)
     if not ok then
@@ -88,76 +89,7 @@ function _M.write_file(record)
     end
 end
 
--- 放入共享内存队列；容量不足时返回 false
-function _M.push_memory(payload)
-    local queue = ngx.shared[_M.QUEUE_DICT]
-    if queue == nil then
-        return false, "共享内存 " .. _M.QUEUE_DICT .. " 未声明"
-    end
-
-    local max_size = tonumber(config.config_log_queue_size) or 20000
-    local length = queue:llen(_M.QUEUE_KEY) or 0
-    if length >= max_size then
-        local meta = ngx.shared[_M.META_DICT]
-        if meta ~= nil then
-            meta:incr("dropped", 1, 0)
-        end
-        return false, "队列已满"
-    end
-
-    local ok, err = queue:rpush(_M.QUEUE_KEY, payload)
-    if not ok then
-        local meta = ngx.shared[_M.META_DICT]
-        if meta ~= nil then
-            meta:incr("dropped", 1, 0)
-        end
-        return false, err
-    end
-    return true
-end
-
--- 从共享内存队列取出一批（返回已解码的记录表）
-function _M.drain_memory(limit)
-    local queue = ngx.shared[_M.QUEUE_DICT]
-    local records = {}
-    if queue == nil then
-        return records
-    end
-
-    for _ = 1, limit do
-        local payload = queue:lpop(_M.QUEUE_KEY)
-        if payload == nil then
-            break
-        end
-        local record = cjson.decode(payload)
-        if record ~= nil then
-            records[#records + 1] = record
-        else
-            local meta = ngx.shared[_M.META_DICT]
-            if meta ~= nil then
-                meta:incr("dropped", 1, 0)
-            end
-        end
-    end
-    return records
-end
-
--- 落库失败时把本批记录放回队列
-function _M.requeue_memory(records)
-    local queue = ngx.shared[_M.QUEUE_DICT]
-    if queue == nil then
-        return
-    end
-    for _, record in ipairs(records) do
-        local payload = cjson.encode(record)
-        if payload ~= nil then
-            queue:rpush(_M.QUEUE_KEY, payload)
-        end
-    end
-end
-
--- 首次写入时把实际生效的模式打印一次，便于排查「配了 redis 却还在写文件」
--- 只在每个 worker 首次写日志时输出，不影响性能
+-- 首次写入时打印一次实际生效的模式，便于排查「配了 redis 却还在写文件」
 local announced = false
 
 local function announce(mode)
@@ -169,7 +101,8 @@ local function announce(mode)
         "（file=", tostring(config.config_log_dir),
         "；redis=", tostring(config.config_redis_host), ":", tostring(config.config_redis_port),
         " db=", tostring(config.config_redis_db),
-        "；若模式为 non-file 但仍出现本文件写入，请检查上方是否有「写入失败，回落写文件」告警）")
+        " key=", tostring(config.config_redis_list_key),
+        "）落库由后台 wafadmin 消费，需开启 conf/app.ini 的 [log] INGEST_ENABLED = on")
 end
 
 -- 统一入口：按配置的日志模式写出
@@ -178,32 +111,27 @@ function _M.write(record)
     local mode = config.config_log_mode or "file"
     announce(mode)
 
-    if mode == "mysql" then
-        local payload = cjson.encode(normalized)
-        if payload == nil then
-            _M.write_file(normalized)
-            return
-        end
-        local ok, err = _M.push_memory(payload)
-        if ok then
-            return
-        end
-        ngx.log(ngx.WARN, "[waf] 内存队列写入失败（", tostring(err), "），回落写文件")
-        _M.write_file(normalized)
-        return
-    end
-
     if mode == "redis" then
         local payload = cjson.encode(normalized)
         if payload == nil then
             _M.write_file(normalized)
             return
         end
-        local ok, err = require("log_redis").push(payload)
+
+        -- 运行时加载：缺库时给出可读错误而不是抛异常
+        local ok_load, log_redis = pcall(require, "log_redis")
+        if not ok_load or log_redis == nil or type(log_redis) ~= "table" then
+            ngx.log(ngx.WARN, "[waf] 加载 log_redis 失败：", tostring(log_redis), "，回落写文件")
+            _M.write_file(normalized)
+            return
+        end
+
+        local ok, err = log_redis.push(payload)
         if ok then
             return
         end
-        ngx.log(ngx.WARN, "[waf] Redis 队列写入失败（", tostring(err), "），回落写文件")
+        ngx.log(ngx.WARN, "[waf] Redis 队列写入失败（", tostring(config.config_redis_host), ":",
+            tostring(config.config_redis_port), "）：", tostring(err), "，回落写文件")
         _M.write_file(normalized)
         return
     end
@@ -211,18 +139,15 @@ function _M.write(record)
     _M.write_file(normalized)
 end
 
--- 读取计数器（供调试接口或日志使用）
+-- 读取计数器（调试用；无共享内存时返回 nil）
 function _M.stats()
-    local meta = ngx.shared[_M.META_DICT]
-    local queue = ngx.shared[_M.QUEUE_DICT]
+    local meta = ngx.shared["waf_log_meta"]
     if meta == nil then
         return nil
     end
     return {
         inserted = meta:get("inserted") or 0,
-        failed = meta:get("failed") or 0,
-        dropped = meta:get("dropped") or 0,
-        pending = queue and queue:llen(_M.QUEUE_KEY) or 0
+        failed = meta:get("failed") or 0
     }
 end
 

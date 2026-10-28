@@ -107,8 +107,7 @@ func (s *LuaConfigService) Verify(ctx context.Context) (*LuaVerifyView, error) {
 	switch mode {
 	case "file":
 		add("log_mode", "日志模式", "ok", "file 模式：日志写本地文件，后台日志页不会增长（这是预期行为）")
-	case "mysql":
-		add("log_mode", "日志模式", "ok", "mysql 模式：nginx 直接批量写库；需要 config_mysql_* 可用")
+
 	case "redis":
 		redisPort := values["config_redis_port"]
 		if redisPort == "" {
@@ -124,12 +123,16 @@ func (s *LuaConfigService) Verify(ctx context.Context) (*LuaVerifyView, error) {
 				test.Message+"（"+address+"）。log_sink 在写 Redis 失败时会**回落到写文件**，这就是「配了 redis 还在写文件」的常见原因")
 		}
 
-		consume := strings.ToLower(strings.TrimSpace(view.RedisConsume))
-		if consume == "off" {
-			add("consume", "消费方", "warn",
-				"config_redis_consume = off：由后台 wafadmin 消费，需要 conf/app.ini 的 [log] INGEST_ENABLED = on 且 REDIS_LIST_KEY 与 config_redis_list_key 一致")
+		// lua 只写队列，落库完全依赖后台消费者：未开启时日志会在 Redis 里堆积
+		if s.Cfg == nil || !s.Cfg.LogIngest.Enabled {
+			add("consume", "后台消费", "error",
+				"conf/app.ini 的 [log] INGEST_ENABLED 为 off：redis 模式下日志不会入库（会在 Redis 里堆积）。请改为 on 并重启 wafadmin")
+		} else if !sameKey(s.Cfg.LogIngest.ListKey, values["config_redis_list_key"]) {
+			add("consume", "后台消费", "error",
+				fmt.Sprintf("队列键不一致：后台 [log] REDIS_LIST_KEY=%s，lua config_redis_list_key=%s，后台消费不到日志",
+					s.Cfg.LogIngest.ListKey, values["config_redis_list_key"]))
 		} else {
-			add("consume", "消费方", "ok", "config_redis_consume = on：nginx 自己消费队列落库（此时后台看板的「已入库」不会增长，属正常）")
+			add("consume", "后台消费", "ok", "后台消费者已开启，队列键一致（"+s.Cfg.LogIngest.ListKey+"）")
 		}
 
 		add("redis_ext", "lua-resty-redis", "warn",
@@ -292,4 +295,9 @@ func (s *LuaConfigService) latestLogTime(ctx context.Context) (time.Time, bool, 
 		}
 	}
 	return time.Time{}, false, nil
+}
+
+// sameKey 比较两个队列键是否等价（忽略大小写与首尾空白）。
+func sameKey(left, right string) bool {
+	return strings.EqualFold(strings.TrimSpace(left), strings.TrimSpace(right))
 }

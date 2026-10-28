@@ -64,8 +64,6 @@ const (
 	groupOutput = "拦截页面"
 	// groupLog 日志输出：日志模式与批量参数。
 	groupLog = "日志输出"
-	// groupMySQL MySQL 落库：直连 MySQL 用的连接参数。
-	groupMySQL = "MySQL 落库"
 	// groupRedis Redis 队列：写 Redis 队列用的连接参数与消费方。
 	groupRedis = "Redis 队列"
 )
@@ -213,41 +211,14 @@ func luaFields() []luaField {
 			Desc: "file 模式下的日志写入目录，须与后台「运行配置 → LOG_DIR」一致",
 		},
 
-		// ---------- 日志输出：写日志的模式与批量参数 ----------
+		// ---------- 日志输出：只保留模式选择（落库交给后台 wafadmin 消费） ----------
 		{
 			Key: "config_log_mode", Label: "日志输出模式", Type: luaTypeSelect, Group: groupLog,
-			Options: []string{"file", "mysql", "redis"},
-			Desc:    "file=写本地文件；mysql=内存队列异步直连 MySQL；redis=写 Redis 队列，由 nginx 或后台消费",
-		},
-		{
-			Key: "config_log_batch_size", Label: "每批落库条数", Type: luaTypeNumber, Group: groupLog,
-			Min: 1, Max: 5000, Desc: "mysql 模式下每次批量写入的条数",
-		},
-		{
-			Key: "config_log_flush_interval", Label: "落库间隔（秒）", Type: luaTypeNumber, Group: groupLog,
-			Min: 1, Max: 300, Desc: "mysql 模式下定时刷盘的间隔",
-		},
-		{
-			Key: "config_log_queue_size", Label: "内存队列上限", Type: luaTypeNumber, Group: groupLog,
-			Min: 100, Max: 1000000, Desc: "异步队列最多缓存多少条日志，满了会丢弃最旧的",
+			Options: []string{"file", "redis"},
+			Desc:    "file=写本地日志文件；redis=写 Redis 队列，由后台 wafadmin 消费入库（推荐；lua 侧不再直连 MySQL）",
 		},
 
-		// ---------- MySQL 落库：直连参数 ----------
-		{
-			Key: "config_mysql_host", Label: "主机", Type: luaTypeText, Group: groupMySQL,
-			Desc: "mysql 模式下数据库地址；redis + 后台消费模式下可留空",
-		},
-		{Key: "config_mysql_port", Label: "端口", Type: luaTypeNumber, Group: groupMySQL, Min: 1, Max: 65535},
-		{Key: "config_mysql_database", Label: "库名", Type: luaTypeText, Group: groupMySQL},
-		{Key: "config_mysql_user", Label: "账号", Type: luaTypeText, Group: groupMySQL},
-		{Key: "config_mysql_password", Label: "口令", Type: luaTypeSecret, Group: groupMySQL,
-			Desc: "留空或保持脱敏值表示不修改"},
-		{
-			Key: "config_mysql_keepalive", Label: "连接空闲（毫秒）", Type: luaTypeNumber, Group: groupMySQL,
-			Min: 0, Desc: "长连接空闲超时，过小会导致频繁重连",
-		},
-
-		// ---------- Redis 队列：写队列参数与消费方 ----------
+		// ---------- Redis 队列：写队列参数（消费在后台） ----------
 		{Key: "config_redis_host", Label: "主机", Type: luaTypeText, Group: groupRedis},
 		{Key: "config_redis_port", Label: "端口", Type: luaTypeNumber, Group: groupRedis, Min: 1, Max: 65535},
 		{Key: "config_redis_password", Label: "密码", Type: luaTypeSecret, Group: groupRedis,
@@ -256,10 +227,6 @@ func luaFields() []luaField {
 		{
 			Key: "config_redis_list_key", Label: "队列键名", Type: luaTypeText, Group: groupRedis,
 			Desc: "须与后台 [log] REDIS_LIST_KEY 一致，否则后台消费不到日志",
-		},
-		{
-			Key: "config_redis_consume", Label: "由 nginx 自身消费", Type: luaTypeSwitch, Group: groupRedis,
-			Desc: "开启=nginx 自己消费队列落库；关闭=nginx 只写队列，由后台 wafadmin 消费（需 [log] INGEST_ENABLED = on）。两者互斥",
 		},
 	}
 }

@@ -21,7 +21,7 @@ config_cc_rate = "300/60",
 config_ipcc_check = 'on',
 config_post_max_size = 8388608,
 config_auto_ban_check = "off",
-config_mysql_password = "secret-pass",
+config_redis_password = "secret-pass",
 config_output_html = [[
 <html>%s</html>
 ]],
@@ -66,7 +66,7 @@ func TestLuaConfigView(t *testing.T) {
 		t.Fatalf("config_ipcc_check = %q", got)
 	}
 	// 密钥类需要脱敏
-	secret := values["config_mysql_password"]
+	secret := values["config_redis_password"]
 	if !secret.Masked || strings.Contains(secret.Value, "secret-pass") {
 		t.Fatalf("口令应脱敏: %+v", secret)
 	}
@@ -137,7 +137,7 @@ func TestLuaConfigValidation(t *testing.T) {
 	}{
 		{name: "开关取值非法", values: map[string]string{"config_waf_enable": "yes"}},
 		{name: "数字非法", values: map[string]string{"config_post_max_size": "abc"}},
-		{name: "数字超范围", values: map[string]string{"config_mysql_port": "70000"}},
+		{name: "数字超范围", values: map[string]string{"config_redis_port": "70000"}},
 		{name: "下拉取值非法", values: map[string]string{"config_waf_model": "block"}},
 		{name: "限速格式非法", values: map[string]string{"config_cc_rate": "300-60"}},
 		{name: "未知配置项", values: map[string]string{"config_not_exist": "1"}},

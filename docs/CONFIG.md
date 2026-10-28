@@ -111,9 +111,10 @@
 
 ---
 
-## 2. `lua-waf/config.lua`（WAF 配置，共 47 项）
+## 2. `lua-waf/config.lua`（WAF 配置，共 37 项）
 
-后台「防护配置 → WAF 配置」按模块选项卡展示，这里按同样顺序列出。**值类型**：`on/off` 开关、数字、文本、枚举、密钥（读时脱敏）、多行模板。
+后台「防护配置 → WAF 配置」按模块选项卡展示，这里按同样顺序列出。
+**lua 侧不再直连 MySQL**：`config_log_mode` 只有 `file` / `redis` 两种，日志落库统一由后台 `wafadmin` 消费 Redis 完成。
 
 ### 2.1 基础（4）
 
@@ -128,11 +129,9 @@
 
 | 键 | 说明 |
 |---|---|
-| `config_output_html` | 拦截页 HTML 模板（Lua 长字符串 `[[ ... ]]`），支持 `%s` 占位（IP、请求地址、拦截次数）；**不能包含 `]]`** |
+| `config_output_html` | 拦截页 HTML 模板（Lua 长字符串 `[[ ... ]]`），支持 `%s` 占位；**不能包含 `]]`** |
 
 ### 2.3 检测开关（15）
-
-与 `waf.lua` 的 `check()` 顺序对应：
 
 | 键 | 对应阶段 |
 |---|---|
@@ -147,65 +146,40 @@
 | `config_post_check` | 12 请求体检测 |
 | `config_post_multipart_check` | 12 multipart 分段检测 |
 | `config_upload_check` | 12 上传后缀白名单校验 |
-| `config_upload_ext_whitelist` | 允许的上传后缀（逗号分隔，如 `jpg,png,pdf,docx,zip`） |
+| `config_upload_ext_whitelist` | 允许的上传后缀（逗号分隔） |
 | `config_cc_check` | 9 CC 频率检测 |
 | `config_ipcc_check` | 9 IP 频率检测 |
 | `config_malformed_check` | 3 畸形请求检测 |
 
 ### 2.4 频率与请求体（4）
 
-| 键 | 说明 |
-|---|---|
-| `config_cc_rate` | CC 阈值，格式 `次数/秒`，如 `300/60` |
-| `config_ipcc_rate` | IP 阈值，格式 `次数/秒`，如 `120/7200` |
-| `config_post_max_size` | 请求体检测上限（字节），超出只记录不深检 |
-| `config_post_max_parts` | multipart 分段数上限 |
+`config_cc_rate`（`次数/秒`）、`config_ipcc_rate`、`config_post_max_size`（字节）、`config_post_max_parts`。
 
 ### 2.5 自动封禁（5）
 
-| 键 | 说明 |
-|---|---|
-| `config_auto_ban_check` | 自动封禁开关 |
-| `config_auto_ban_window` | 统计窗口（秒） |
-| `config_auto_ban_threshold` | 窗口内命中多少次后封禁 |
-| `config_auto_ban_types` | 参与封禁的攻击类型（逗号分隔，留空=全部） |
-| `config_auto_ban_expire` | 封禁时长（秒） |
+`config_auto_ban_check`、`config_auto_ban_window`、`config_auto_ban_threshold`、`config_auto_ban_types`、`config_auto_ban_expire`。
 
 ### 2.6 目录（2）
 
-| 键 | 说明 |
-|---|---|
-| `config_rule_dir` | lua 读取 `*.rule` 的目录，须与 `[waf] RULE_PATH` 一致 |
-| `config_log_dir` | file 模式的日志目录，须与 `[waf] LOG_DIR` 一致 |
+`config_rule_dir`（须与 `[waf] RULE_PATH` 一致）、`config_log_dir`（file 模式日志目录，须与 `[waf] LOG_DIR` 一致）。
 
-### 2.7 日志输出（4）
+### 2.7 日志输出（1）
 
 | 键 | 说明 |
 |---|---|
-| `config_log_mode` | `file` / `mysql` / `redis`（三选一，见 README 5.2） |
-| `config_log_batch_size` | mysql 模式每批写入条数 |
-| `config_log_flush_interval` | mysql 模式刷盘间隔（秒） |
-| `config_log_queue_size` | 异步内存队列上限 |
+| `config_log_mode` | `file` = 写本地日志文件；`redis` = 写 Redis 队列（推荐），由后台消费入库 |
 
-### 2.8 MySQL 落库（6）
+### 2.8 Redis 队列（5）
 
-`config_mysql_host` / `config_mysql_port` / `config_mysql_database` / `config_mysql_user` / `config_mysql_password`（密钥）/ `config_mysql_keepalive`（连接空闲毫秒）。
+| 键 | 说明 |
+|---|---|
+| `config_redis_host` / `config_redis_port` | Redis 地址 |
+| `config_redis_password` | 口令（接口层脱敏） |
+| `config_redis_db` | 库号 |
+| `config_redis_list_key` | 队列键名，须与后台 `[log] REDIS_LIST_KEY` 一致 |
 
-仅 `config_log_mode = "mysql"` 时使用；redis + 后台消费模式下可留空。
-
-### 2.9 Redis 队列（6）
-
-`config_redis_host` / `config_redis_port` / `config_redis_password`（密钥）/ `config_redis_db` / `config_redis_list_key` / `config_redis_consume`。
-
-`config_redis_consume`：
-
-- `on` = **nginx 自己消费**队列落库；
-- `off` = nginx 只写队列，由后台 `wafadmin` 消费（需 `[log] INGEST_ENABLED = on`）。
-
-两者互斥，**只开一个**，否则会出现抢消费或重复入库。
-
----
-
+> 已移除的配置：`config_mysql_*`（6 项）、`config_redis_consume`（消费方改由后台固定承担）、
+> `config_log_batch_size` / `config_log_flush_interval` / `config_log_queue_size`（落库参数由后台消费者控制）。
 ## 3. 后台「AI 设置」配置项
 
 保存在数据库 `setting` 表（键 `ai.config`），不是 ini 文件：

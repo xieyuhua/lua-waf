@@ -81,6 +81,19 @@
   WAF 配置页工具条新增按钮，保存前即可确认地址/口令是否可用；错误信息按类型翻译
   （拒绝连接 / 超时 / 域名解析失败 / Access denied / Unknown database / Redis 口令错误），口令支持掩码复用已保存值。
 
+### 重构（lua 只写 Redis，Go 统一入库）
+
+- **移除 lua 侧 MySQL 相关代码**：删除 `log_mysql.lua`、`log_consumer.lua`、`lib/resty/mysql.lua`；
+  `log_sink.lua` 只保留 `file` / `redis` 两种模式（去掉内存队列 push/drain/requeue 与 mysql 分支），
+  Redis 写入失败仍回落写文件并打 WARN；`init_worker.lua` 不再启动 nginx 侧消费者。
+- **配置项精简 47 → 37**：删除 `config_mysql_*`（6）、`config_redis_consume`（1）、
+  `config_log_batch_size`/`config_log_flush_interval`/`config_log_queue_size`（3）；
+  `config_log_mode` 只允许 `file` / `redis`；后台「WAF 配置」的 MySQL 选项卡随之移除。
+- **后台固定承担消费**：redis 模式下 `[log] INGEST_ENABLED` 必须为 `on`；
+  「生效自检」新增检查——未开启则直接报错（日志只进 Redis 不入库），并校验
+  `[log] REDIS_LIST_KEY` 与 `config_redis_list_key` 是否一致。
+- 依赖减负：lua 侧不再需要 `lua-resty-mysql`，只要 `resty.redis`（已内置纯 Lua 实现）。
+
 ### 新增（lua 侧依赖内置，缺库不再「哑失败」）
 
 - **内置零依赖依赖库** `lua-waf/lib/resty/`：
