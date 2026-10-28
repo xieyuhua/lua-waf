@@ -70,6 +70,10 @@ func (s *Store) Open(database config.Database) error {
 		_ = engine.Close()
 		return err
 	}
+	// 补建查询索引（幂等；避免日志量大时全表扫描导致接口超时）
+	if err := s.ensureIndexes(engine); err != nil {
+		log.Printf("[warn] 索引检查失败: %v", err)
+	}
 
 	s.Engine = engine
 	s.database = database.Name
@@ -84,6 +88,49 @@ func (s *Store) Open(database config.Database) error {
 
 	if exists, err := engine.IsTableExist(new(model.WafLog)); err == nil && !exists {
 		log.Println("[warn] 未找到 waf_log 表，攻击日志相关页面将为空；该表由 openresty 侧写入")
+	}
+	return nil
+}
+
+// logIndexes 是 waf_log 上需要的索引（缺失会补建）。
+//
+// 为什么需要：waf_log 在生产上常是百万级，日志列表/概览/地图都按 local_time、attack_type、
+// client_ip 过滤或聚合；缺索引时每次查询都是全表扫描（实测 20~45 秒），
+// 前端等不及就会超时并报「查询日志失败 / 统计攻击类型失败」。
+var logIndexes = []struct {
+	Name   string
+	Column string
+}{
+	{Name: "idx_waf_log_local_time", Column: "local_time"},
+	{Name: "idx_waf_log_attack_type", Column: "attack_type"},
+	{Name: "idx_waf_log_client_ip", Column: "client_ip"},
+	{Name: "idx_waf_log_ip_time", Column: "client_ip, local_time"},
+	{Name: "idx_waf_log_server_name", Column: "server_name"},
+}
+
+// ensureIndexes 为 waf_log 补齐索引（幂等：已存在则跳过）。
+// 只在表已存在时执行，不影响首次建表；建索引期间会打印日志，大表可能需要几十秒。
+func (s *Store) ensureIndexes(engine *xorm.Engine) error {
+	exists, err := engine.IsTableExist(new(model.WafLog))
+	if err != nil || !exists {
+		return nil
+	}
+
+	for _, item := range logIndexes {
+		rows, err := engine.QueryString("SHOW INDEX FROM waf_log WHERE Key_name = ?", item.Name)
+		if err != nil {
+			return fmt.Errorf("检查索引 %s 失败: %w", item.Name, err)
+		}
+		if len(rows) > 0 {
+			continue
+		}
+
+		log.Printf("[info] 为 waf_log 补建索引 %s(%s)，大表可能需要一些时间…", item.Name, item.Column)
+		if _, err := engine.Exec(fmt.Sprintf("ALTER TABLE waf_log ADD INDEX %s (%s)", item.Name, item.Column)); err != nil {
+			log.Printf("[warn] 补建索引 %s 失败（可手工创建）：%v", item.Name, err)
+			continue
+		}
+		log.Printf("[info] 索引 %s 已创建", item.Name)
 	}
 	return nil
 }

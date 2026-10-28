@@ -81,6 +81,16 @@
   WAF 配置页工具条新增按钮，保存前即可确认地址/口令是否可用；错误信息按类型翻译
   （拒绝连接 / 超时 / 域名解析失败 / Access denied / Unknown database / Redis 口令错误），口令支持掩码复用已保存值。
 
+### 修复（日志接口超时报 1500）
+
+- **`/api/logs`、`/api/logs/filters`、`/api/logs/overview` 报「查询日志失败 / 统计攻击类型失败」**：
+  根因是 `waf_log`（百万行）缺索引 + 查询里 `GROUP_CONCAT(DISTINCT area)`（area 上千种取值），
+  单次 20~45 秒，客户端等不及超时即 500。修复：
+  ① 启动时**自动补建索引**（local_time / attack_type / client_ip / server_name / (client_ip,local_time)，幂等）；
+  ② 类型统计去掉 `GROUP_CONCAT(area)`；③ IP 排行改两段式（先取 Top N 再回表）并默认只统计近 30 天；
+  ④ 筛选项改 `SELECT DISTINCT attack_type` + 60 秒缓存。
+  实测：类型统计 27s→0.6s、IP 排行 33s→0.4s、概览 45s→1.8s、看板 4.7s→0.04s。
+
 ### 修复（日志模式不生效 / 改错文件）
 
 - **`[waf] LUA_CONFIG` 默认改回 nginx 实际路径**（`/www/server/nginx/x-waf/config.lua`）：

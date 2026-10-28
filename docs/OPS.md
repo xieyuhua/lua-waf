@@ -157,6 +157,29 @@ systemctl start wafadmin
 | 保存配置报 500 | 目标文件无写权限 | 检查 `LUA_CONFIG` / `app.ini` 所在目录权限与属主 |
 | 慢 SQL 列表为空 | `[monitor] SLOW_SQL_MS` 阈值过高 | 调低阈值（如 200ms）观察 |
 
+## 6.1 日志页/概览接口很慢或报「查询日志失败」
+
+`waf_log` 在跑一段时间后常是百万级。若缺索引，`按类型统计`、`按 IP 排行`这类 `GROUP BY`
+会退化成全表扫描（实测单次 20~45 秒），前端等不及就表现为超时 → 500。
+后台启动时会**自动补建索引**（幂等，日志里能看到 `为 waf_log 补建索引 …`）：
+
+| 索引 | 用途 |
+|---|---|
+| `idx_waf_log_local_time(local_time)` | 按日期/时间范围过滤（列表、趋势、概览） |
+| `idx_waf_log_attack_type(attack_type)` | 攻击类型聚合 |
+| `idx_waf_log_client_ip(client_ip)` + `idx_waf_log_ip_time(client_ip, local_time)` | 来源 IP 排行（Top N + 时间过滤） |
+| `idx_waf_log_server_name(server_name)` | 站点筛选 |
+
+同时做了三处查询优化：类型统计不再 `GROUP_CONCAT(area)`（取值上千种，代价极高）；
+IP 排行改为「先聚合取 Top N 再回表取地区/类型」，且默认只统计近 30 天；筛选项改用
+`SELECT DISTINCT attack_type` 并缓存 60 秒。
+
+手工核对索引：
+
+```sql
+SHOW INDEX FROM waf_log;
+```
+
 ## 7. 巡检清单（建议每日 / 每周）
 
 每日：

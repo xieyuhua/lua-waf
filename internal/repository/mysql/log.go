@@ -199,12 +199,17 @@ func (r *logRepo) IPStats(ctx context.Context, filter repository.StatsFilter) ([
 		limit = 20
 	}
 
-	inner := "SELECT client_ip, COUNT(*) AS num FROM waf_log "
-	innerArgs := make([]any, 0, 2)
+	// 未指定日期时默认只统计近 30 天：源站 IP 排行榜看“最近谁在打”即可，
+	// 且能用上 local_time 索引，避免百万行全表 GROUP BY。
+	since := ""
 	if filter.Day != "" {
-		inner += "WHERE local_time LIKE ? "
-		innerArgs = append(innerArgs, filter.Day+"%")
+		since = "local_time LIKE '" + filter.Day + "%'"
+	} else {
+		since = "local_time >= '" + time.Now().AddDate(0, 0, -30).Format("2006-01-02") + " 00:00:00'"
 	}
+
+	inner := "SELECT client_ip, COUNT(*) AS num FROM waf_log WHERE " + since + " "
+	innerArgs := make([]any, 0, 2)
 	inner += "GROUP BY client_ip ORDER BY num DESC LIMIT ?"
 	innerArgs = append(innerArgs, limit)
 
@@ -213,11 +218,7 @@ func (r *logRepo) IPStats(ctx context.Context, filter repository.StatsFilter) ([
 		"FROM (" + inner + ") t JOIN waf_log l ON l.client_ip = t.client_ip "
 	jargs := make([]any, 0, len(innerArgs)+2)
 	jargs = append(jargs, innerArgs...)
-	if filter.Day != "" {
-		query += "WHERE l.local_time LIKE ? "
-		jargs = append(jargs, filter.Day+"%")
-	}
-	query += "GROUP BY t.client_ip ORDER BY num DESC"
+	query += "WHERE l." + since + " GROUP BY t.client_ip ORDER BY num DESC"
 	args := jargs
 
 	stats := make([]model.IPStat, 0, 32)
