@@ -18,6 +18,7 @@ import (
 
 	"wafadmin/internal/service"
 	"wafadmin/internal/transport/httpapi"
+	"wafadmin/pkg/geo"
 
 	"wafadmin/pkg/redis"
 	"wafadmin/pkg/response"
@@ -88,11 +89,12 @@ func New(opts Options) (*App, error) {
 		Loader:  loader,
 		Writer:  &config.Writer{Path: configPath(cfg)},
 		Applier: &runtimeConfig{
-			nginx:   builder.nginxManager(),
-			deps:    deps,
-			session: sessionManager,
-			csrf:    csrfGuard,
-			db:      builder.store,
+			nginx:     builder.nginxManager(),
+			deps:      deps,
+			session:   sessionManager,
+			csrf:      csrfGuard,
+			db:        builder.store,
+			retention: builder.retention,
 		},
 	}
 
@@ -104,6 +106,7 @@ func New(opts Options) (*App, error) {
 			DB:       cfg.LogIngest.DB,
 		},
 		Source: cfg.LogIngest.ListKey,
+		Geo:    resolveIP2Region(cfg),
 		Batch:  cfg.LogIngest.Batch,
 		Block:  time.Duration(cfg.LogIngest.BlockMS) * time.Millisecond,
 	}, repos.Log)
@@ -202,3 +205,22 @@ func (a *App) Shutdown(ctx context.Context) error {
 }
 
 // builder 按运行模式装配仓储与服务，并记录需要释放的资源。
+// resolveIP2Region 打开 ip2region 数据文件并自检；不可用时返回 nil（area 仍由 lua 侧解析）。
+//
+// 这样 lua 不必为每个 worker 加载 12MB 数据文件：只要后端能解析，日志入库时就会补全 area。
+func resolveIP2Region(cfg *config.Config) func(ip string) (string, bool) {
+	region, err := geo.DefaultIP2Region(cfg.IP2RegionDB)
+	if err != nil {
+		log.Printf("[warn] IP 归属地解析未启用（%s）：%v；area 仍由 lua 侧解析", cfg.IP2RegionDB, err)
+		return nil
+	}
+
+	sample, ok := region.Search("8.8.8.8")
+	if !ok {
+		log.Printf("[warn] IP 归属地解析未启用：%s 自检失败（8.8.8.8 解析不出结果），area 仍由 lua 侧解析", cfg.IP2RegionDB)
+		return nil
+	}
+
+	log.Printf("[info] IP 归属地解析已启用（后端）：%s，自检 8.8.8.8 = %s", cfg.IP2RegionDB, sample)
+	return region.Search
+}

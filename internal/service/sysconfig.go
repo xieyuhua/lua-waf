@@ -33,21 +33,23 @@ type DatabasePayload struct {
 // ConfigPayload 是运行配置的编辑入参。
 // 字符串字段留空表示保持原值；密钥字段传脱敏串（含 ****）同样表示保持原值。
 type ConfigPayload struct {
-	RunMode       string           `json:"run_mode"`
-	HTTPPort      int              `json:"http_port"`
-	APIKey        string           `json:"api_key"`
-	APIServers    []string         `json:"api_servers"`
-	NginxBin      string           `json:"nginx_bin"`
-	NginxVhosts   string           `json:"nginx_vhosts"`
-	SSLCertDir    string           `json:"ssl_cert_dir"`
-	RulePath      string           `json:"rule_path"`
-	WafLogDir     string           `json:"waf_log_dir"`
-	PageSize      int              `json:"page_size"`
-	SessionSecret string           `json:"session_secret"`
-	SessionTTL    string           `json:"session_ttl"`
-	SessionSecure bool             `json:"session_secure"`
-	CaptchaTTL    string           `json:"captcha_ttl"`
-	SlowSQLMS     int64            `json:"slow_sql_ms"`
+	RunMode       string   `json:"run_mode"`
+	HTTPPort      int      `json:"http_port"`
+	APIKey        string   `json:"api_key"`
+	APIServers    []string `json:"api_servers"`
+	NginxBin      string   `json:"nginx_bin"`
+	NginxVhosts   string   `json:"nginx_vhosts"`
+	SSLCertDir    string   `json:"ssl_cert_dir"`
+	RulePath      string   `json:"rule_path"`
+	WafLogDir     string   `json:"waf_log_dir"`
+	PageSize      int      `json:"page_size"`
+	SessionSecret string   `json:"session_secret"`
+	SessionTTL    string   `json:"session_ttl"`
+	SessionSecure bool     `json:"session_secure"`
+	CaptchaTTL    string   `json:"captcha_ttl"`
+	SlowSQLMS     int64    `json:"slow_sql_ms"`
+	// RetentionDays 为 waf_log 热表保留天数；更早的数据按月归档到 waf_log_YYYYMM（0 = 不归档）。
+	RetentionDays int              `json:"retention_days"`
 	Database      *DatabasePayload `json:"database,omitempty"`
 }
 
@@ -231,6 +233,14 @@ func (s *SystemConfigService) merge(cfg *config.Config, payload ConfigPayload) e
 		}
 		cfg.SlowSQLThreshold = time.Duration(payload.SlowSQLMS) * time.Millisecond
 	}
+	// 日志保留天数：0 表示不归档；上限 3650 天（10 年）避免误输入
+	if payload.RetentionDays < 0 {
+		return ErrInvalid.New("日志保留天数不能为负数")
+	}
+	if payload.RetentionDays > 3650 {
+		return ErrInvalid.New("日志保留天数不能超过 3650 天")
+	}
+	cfg.LogIngest.RetentionDays = payload.RetentionDays
 	if payload.Database != nil {
 		if err := mergeDatabase(&cfg.Database, payload.Database); err != nil {
 			return err
@@ -321,6 +331,7 @@ func (s *SystemConfigService) view(cfg *config.Config, restart []string) *Config
 		SessionSecure: cfg.SessionSecure,
 		CaptchaTTL:    cfg.CaptchaTTL.String(),
 		SlowSQLMS:     cfg.SlowSQLThreshold.Milliseconds(),
+		RetentionDays: cfg.LogIngest.RetentionDays,
 		Database: &DatabasePayload{
 			Host:              cfg.Database.Host,
 			Port:              cfg.Database.Port,

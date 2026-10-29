@@ -52,12 +52,12 @@ func (s *RetentionService) RunOnce(ctx context.Context) (int64, error) {
 			return total, err
 		}
 
-		removed, err := s.Logs.PurgeBefore(ctx, cutoff)
+		archived, err := s.Logs.ArchiveBefore(ctx, cutoff)
 		if err != nil {
 			return total, err
 		}
-		total += removed
-		if removed == 0 {
+		total += archived.Archived
+		if archived.Archived == 0 {
 			break
 		}
 	}
@@ -79,9 +79,9 @@ func (s *RetentionService) Run(ctx context.Context) {
 
 	for {
 		if removed, err := s.RunOnce(ctx); err != nil {
-			log.Printf("[warn] 清理超期日志失败: %v", err)
+			log.Printf("[warn] 归档超期日志失败: %v", err)
 		} else if removed > 0 {
-			log.Printf("[info] 已清理超期日志 %d 条（早于 %s）", removed, s.Cutoff(time.Now()))
+			log.Printf("[info] 已归档超期日志 %d 条（早于 %s）", removed, s.Cutoff(time.Now()))
 		}
 
 		select {

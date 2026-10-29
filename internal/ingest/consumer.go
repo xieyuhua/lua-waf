@@ -31,6 +31,9 @@ const (
 type Options struct {
 	// Redis 连接参数。
 	Redis redis.Options
+	// Geo 为可选的 IP 归属地解析（后端解析；lua 侧不再需要加载 ip2region）。
+	// 返回 ok=false 表示无法解析，此时保留记录原有的 area。
+	Geo func(ip string) (string, bool)
 	// Source 为源队列键（lua RPUSH 的列表）。
 	Source string
 	// Processing 为处理中队列键（用于崩溃恢复）。
@@ -196,6 +199,19 @@ func (c *Consumer) consumeOnce(ctx context.Context, client *redis.Client) error 
 			continue
 		}
 		records = append(records, record)
+	}
+
+	// 后端补全归属地：lua 侧未解析（area 为空）时用 ip2region 补上，
+	// 这样 lua 不必为每个 worker 加载 12MB 的数据文件。
+	if c.Opts.Geo != nil {
+		for i := range records {
+			if strings.TrimSpace(records[i].Area) != "" {
+				continue
+			}
+			if area, ok := c.Opts.Geo(records[i].ClientIp); ok {
+				records[i].Area = area
+			}
+		}
 	}
 
 	c.addConsumed(int64(len(items)))

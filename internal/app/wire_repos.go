@@ -11,6 +11,7 @@ import (
 	"wafadmin/internal/nginx"
 	"wafadmin/internal/repository"
 	"wafadmin/internal/repository/mysql"
+	"wafadmin/internal/service"
 
 	"wafadmin/pkg/session"
 	"wafadmin/pkg/sqlwatch"
@@ -19,6 +20,9 @@ import (
 type builder struct {
 	cfg     *config.Config
 	closers []func() error
+	// retention 为日志归档服务（保留天数支持后台热更新）。
+	retention *service.RetentionService
+
 	// nginx 为共享的 nginx 配置管理器（热更新与配置下发共用同一实例）。
 	nginx *nginx.Manager
 	// store 为 MySQL 仓储实例（演示模式为 nil），用于运行时开关 SQL 日志。

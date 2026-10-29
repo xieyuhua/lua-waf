@@ -86,6 +86,7 @@ func (w *Writer) apply(file *ini.File, cfg *Config) {
 	set("database", "ADD_MISSING_COLUMNS", strconv.FormatBool(cfg.Database.AddMissingColumns))
 
 	set("log", "INGEST_ENABLED", boolText(cfg.LogIngest.Enabled))
+	set("log", "RETENTION_DAYS", strconv.Itoa(cfg.LogIngest.RetentionDays))
 	set("waf", "MAP_TARGET", cfg.MapTarget)
 	set("waf", "LUA_CONFIG", cfg.LuaConfigPath)
 	set("waf", "RULE_PATH", cfg.RulePath)

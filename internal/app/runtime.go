@@ -6,6 +6,7 @@ import (
 	"wafadmin/internal/config"
 	"wafadmin/internal/nginx"
 	"wafadmin/internal/repository/mysql"
+	"wafadmin/internal/service"
 	"wafadmin/internal/transport/httpapi"
 	"wafadmin/pkg/session"
 )
@@ -19,6 +20,8 @@ type runtimeConfig struct {
 	session *session.Manager
 	csrf    *httpapi.CSRFGuard
 	db      *mysql.Store
+	// retention 为日志归档服务（保留天数可在后台热更新）。
+	retention *service.RetentionService
 }
 
 // Apply 实现 service.ConfigApplier。
@@ -37,6 +40,11 @@ func (r *runtimeConfig) Apply(cfg *config.Config) {
 	r.deps.Logs.PageSize = cfg.PageSize
 	r.deps.SlowSQL.PageSize = cfg.PageSize
 	r.deps.SlowSQL.Threshold = cfg.SlowSQLThreshold
+
+	// 日志保留天数（归档窗口），随时可在后台修改。
+	if r.retention != nil {
+		r.retention.Days = cfg.LogIngest.RetentionDays
+	}
 	r.deps.Dashboard.PageSize = cfg.PageSize
 
 	// 节点同步密钥与验证码有效期

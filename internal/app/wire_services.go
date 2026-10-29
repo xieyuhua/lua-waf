@@ -25,13 +25,10 @@ import (
 )
 
 func (b *builder) services(repos repository.Repositories) (*httpapi.Deps, error) {
-	// 日志保留策略：RETENTION_DAYS > 0 时每天清理超期日志（默认 0 = 不清理）
-	if b.cfg.LogIngest.RetentionDays > 0 {
-		retention := &service.RetentionService{Logs: repos.Log, Days: b.cfg.LogIngest.RetentionDays}
-		go retention.Run(context.Background())
-	} else {
-		log.Printf("[info] 日志保留策略未启用（[log] RETENTION_DAYS = 0）")
-	}
+	// 日志归档策略：RETENTION_DAYS > 0 时每天把超期日志按月归档到 waf_log_YYYYMM（默认 0 = 不归档）
+	retention := &service.RetentionService{Logs: repos.Log, Days: b.cfg.LogIngest.RetentionDays}
+	b.retention = retention
+	go retention.Run(context.Background())
 
 	hasher := crypto.Hasher{}
 	nginxManager := b.nginxManager()

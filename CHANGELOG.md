@@ -2,6 +2,15 @@
 
 按主题汇总（新→旧）。细节以 git 提交为准。
 
+## 日志归档与归属地
+
+- **按月归档而不是删除**：`[log] RETENTION_DAYS`（后台「系统设置 → 日志保留天数」可改）控制
+  `waf_log` 只保留最近 N 天，更早的数据先 `INSERT INTO waf_log_YYYYMM`（`CREATE TABLE ... LIKE waf_log`）
+  再从 `waf_log` 删除，历史可查；每批 5 万条，按月份提交，失败不影响其它月份。
+- **IP 归属地解析下放到后端**：新增 `pkg/geo/ip2region.go`（ip2region v1 数据文件读取 + 归属地拼装，
+  规则与 lua 侧一致）与 `[waf] IP2REGION_DB`；后台启动自检（解析 8.8.8.8），通过则消费者入库时补全 `area`，
+  lua 侧不必再为每个 worker 加载 12MB 数据文件；数据文件不可用时自动回退 lua 侧解析。
+
 ## 优化（P2 / P3 落地）
 
 - **仓储一致性测试**：新增 `repositorytest` 套件，同一组断言同时跑 MySQL 与内存实现

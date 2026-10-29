@@ -43,6 +43,7 @@
 | `RULE_PATH` | lua 侧规则目录（下发目标，需与 nginx 一致） |
 | `RULE_IMPORT_DIR` | 「从规则文件同步」的候选目录（后台与 nginx 不同机时用本机副本） |
 | `LOG_DIR` | file 模式的日志目录（仅用于展示/校验） |
+| `IP2REGION_DB` | ip2region 数据文件路径（后端解析 IP 归属地；不可用时自动回退到 lua 侧解析） |
 
 ### 1.4 `[log]`
 
@@ -55,7 +56,7 @@
 | `REDIS_LIST_KEY` | `waf:logs` | 队列键，必须与 `config_redis_list_key` 一致 |
 | `INGEST_BATCH` | `200` | 单批入库条数 |
 | `INGEST_BLOCK_MS` | `2000` | BRPOPLPUSH 阻塞毫秒数 |
-| `RETENTION_DAYS` | `0` | 日志保留天数：0=不清理；N>0 时每天删除 `local_time` 早于「今天-N 天」的 `waf_log`（建议先 mysqldump 归档） |
+| `RETENTION_DAYS` | `0` | 日志保留天数：`waf_log` 只保留最近 N 天，更早的数据**不删除**，按月归档到 `waf_log_YYYYMM`；0=不归档（后台「系统设置」也能改） |
 
 ### 1.5 `[security]`
 

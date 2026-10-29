@@ -93,6 +93,9 @@ type Config struct {
 	// MapTarget 为攻击地图的「防护目标」位置（地区文本，如 中国-北京），用于绘制攻击箭头。
 	MapTarget string
 	// LuaConfigPath 为 lua-waf 的 config.lua 路径（后台可在线修改）。
+	// IP2RegionDB 为 ip2region 数据文件路径（后端解析 IP 归属地用；为空或不可用时自动跳过）。
+	IP2RegionDB string
+
 	LuaConfigPath string
 	// RuleImportDir 为「从规则文件同步」的候选目录：
 	// 当后台与 nginx 不在同一台机器（RULE_PATH 不可读）时，用它指向本机的规则目录。
@@ -197,6 +200,7 @@ func (l *Loader) defaults() *Config {
 		WafLogDir:     "/www/wwwlogs/waf",
 		MapTarget:     "中国-北京",
 		LuaConfigPath: "/www/server/nginx/x-waf/config.lua",
+		IP2RegionDB:   "/www/server/nginx/x-waf/ip2region.db",
 		RuleImportDir: "lua-waf/rules",
 
 		LogIngest: LogIngestConfig{
@@ -239,6 +243,7 @@ func (l *Loader) applyINI(cfg *Config, file *ini.File) {
 	cfg.WafLogDir = waf.Key("LOG_DIR").MustString(cfg.WafLogDir)
 	cfg.MapTarget = waf.Key("MAP_TARGET").MustString(cfg.MapTarget)
 	cfg.LuaConfigPath = waf.Key("LUA_CONFIG").MustString(cfg.LuaConfigPath)
+	cfg.IP2RegionDB = waf.Key("IP2REGION_DB").MustString(cfg.IP2RegionDB)
 
 	// 日志入库：lua 写 Redis，本进程消费后批量写 MySQL
 	logSection := file.Section("log")

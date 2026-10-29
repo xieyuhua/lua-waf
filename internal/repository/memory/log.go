@@ -385,10 +385,10 @@ func sortedKeys(set map[string]struct{}) []string {
 	return keys
 }
 
-// PurgeBefore 删除本地时间早于 before 的日志，返回删除条数。
-func (r *logRepo) PurgeBefore(ctx context.Context, before string) (int64, error) {
+// ArchiveBefore 在内存实现里等价于删除（内存仓储没有按月归档表的概念）。
+func (r *logRepo) ArchiveBefore(ctx context.Context, before string) (model.LogArchiveResult, error) {
 	if err := ctx.Err(); err != nil {
-		return 0, err
+		return model.LogArchiveResult{}, err
 	}
 
 	r.store.mu.Lock()
@@ -404,5 +404,5 @@ func (r *logRepo) PurgeBefore(ctx context.Context, before string) (int64, error)
 		kept = append(kept, item)
 	}
 	r.store.logs = kept
-	return removed, nil
+	return model.LogArchiveResult{Archived: removed, Deleted: removed, Tables: []string{}}, nil
 }

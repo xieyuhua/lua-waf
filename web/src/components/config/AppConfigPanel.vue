@@ -28,6 +28,8 @@ const form = reactive({
   session_secure: false,
   captcha_ttl: '5m',
   slow_sql_ms: 200,
+  // 日志保留天数：waf_log 只保留最近 N 天，更早的数据按月归档到 waf_log_YYYYMM（0 = 不归档）
+  retention_days: 0,
   db_host: '127.0.0.1',
   db_port: 3306,
   db_user: '',
@@ -75,6 +77,7 @@ function applyView(view) {
     session_secure: Boolean(data.session_secure),
     captcha_ttl: data.captcha_ttl ?? '5m',
     slow_sql_ms: data.slow_sql_ms ?? 200,
+    retention_days: data.retention_days ?? 0,
     db_host: data.database?.host ?? '127.0.0.1',
     db_port: data.database?.port ?? 3306,
     db_user: data.database?.user ?? '',
@@ -109,6 +112,7 @@ function buildPayload() {
     session_secure: form.session_secure,
     captcha_ttl: form.captcha_ttl,
     slow_sql_ms: Number(form.slow_sql_ms),
+    retention_days: Number(form.retention_days),
     database: {
       host: form.db_host,
       port: Number(form.db_port),
@@ -241,6 +245,15 @@ onMounted(load)
               </el-form-item>
               <el-form-item label="慢 SQL 阈值（毫秒）">
                 <el-input-number v-model="form.slow_sql_ms" :min="10" :max="60000" :step="50" style="width: 100%" />
+              </el-form-item>
+              <el-form-item label="日志保留天数">
+                <div style="display: flex; flex-direction: column; gap: 4px; width: 100%">
+                  <el-input-number v-model="form.retention_days" :min="0" :max="3650" :step="30" style="width: 100%" />
+                  <span class="waf-muted" style="font-size: 11.5px; line-height: 1.6">
+                    waf_log 只保留最近 N 天，更早的数据**不删除**，按月归档到 waf_log_YYYYMM（如 waf_log_202610）。
+                    0 = 不归档；建议先 mysqldump 备份再设置。
+                  </span>
+                </div>
               </el-form-item>
             </div>
           </el-form>

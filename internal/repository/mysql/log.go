@@ -2,6 +2,7 @@ package mysql
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -327,22 +328,110 @@ func (r *logRepo) buildFilter(q model.LogQuery) (string, []any) {
 	return strings.Join(conditions, " AND "), args
 }
 
-// PurgeBefore 删除 local_time 早于 before 的日志（local_time 是字符串，按字典序比较即可）。
+// ArchiveBefore 把 local_time 早于 before 的日志按月归档到 waf_log_YYYYMM，再从 waf_log 删除。
 //
-// 用途：数据保留策略。建议先用 mysqldump 归档再删除，避免历史数据不可追溯。
-func (r *logRepo) PurgeBefore(ctx context.Context, before string) (int64, error) {
-	defer r.observer.Trace(ctx, "log.purge_before", "DELETE FROM waf_log WHERE local_time < ?")()
+// 设计要点：
+//   - waf_log 只保留最近 N 天（[log] RETENTION_DAYS），更早的数据**不丢弃**，按月落到
+//     waf_log_202610 / waf_log_202609 这类表，需要查历史时直接查对应月份表；
+//   - 归档表结构用 CREATE TABLE ... LIKE waf_log 复制，索引一并继承；
+//   - 按「月」分批处理，每批一个事务（先 INSERT ... SELECT，再 DELETE），
+//     避免一次大事务锁表；某月处理失败不影响其它月份；
+//   - 删除带 LIMIT，防止单次删太多造成长事务。
+func (r *logRepo) ArchiveBefore(ctx context.Context, before string) (model.LogArchiveResult, error) {
+	defer r.observer.Trace(ctx, "log.archive_before", "INSERT INTO waf_log_YYYYMM SELECT ... ; DELETE FROM waf_log ...")()
 	if err := ctx.Err(); err != nil {
-		return 0, err
+		return model.LogArchiveResult{}, err
 	}
 
-	result, err := r.engine.Exec("DELETE FROM waf_log WHERE local_time < ? LIMIT 50000", before)
-	if err != nil {
-		return 0, err
+	result := model.LogArchiveResult{Tables: make([]string, 0, 4)}
+	if strings.TrimSpace(before) == "" {
+		return result, nil
 	}
-	affected, err := result.RowsAffected()
+
+	// 找出所有早于 before 的月份（local_time 形如 2026-10-29 10:00:00，前 7 位即年月）
+	rows, err := r.engine.QueryString(
+		"SELECT DISTINCT SUBSTRING(local_time, 1, 7) AS ym FROM waf_log WHERE local_time < ? ORDER BY ym ASC", before)
 	if err != nil {
-		return 0, nil
+		return result, err
 	}
-	return affected, nil
+
+	for _, row := range rows {
+		ym := strings.TrimSpace(row["ym"])
+		if len(ym) != 7 {
+			continue
+		}
+
+		table := "waf_log_" + strings.ReplaceAll(ym, "-", "")
+		monthStart := ym + "-01 00:00:00"
+
+		// 归档表不存在则按 waf_log 结构创建（幂等）
+		if _, err := r.engine.Exec("CREATE TABLE IF NOT EXISTS `" + table + "` LIKE waf_log"); err != nil {
+			return result, fmt.Errorf("创建归档表 %s 失败: %w", table, err)
+		}
+
+		// 只归档「本月且早于 before」的数据
+		upperBound := before
+		if monthEnd := nextMonthStart(ym); monthEnd < before {
+			upperBound = monthEnd
+		}
+
+		archived, err := r.archiveChunk(ctx, table, monthStart, upperBound)
+		if err != nil {
+			return result, err
+		}
+		if archived == 0 {
+			continue
+		}
+
+		result.Archived += archived
+		result.Deleted += archived
+		result.Tables = append(result.Tables, table)
+	}
+
+	return result, nil
+}
+
+// archiveChunk 循环把 [from, to) 区间的数据搬到归档表并删除，返回处理条数。
+func (r *logRepo) archiveChunk(ctx context.Context, table, from, to string) (int64, error) {
+	const batch = 50000
+
+	var total int64
+	for {
+		if err := ctx.Err(); err != nil {
+			return total, err
+		}
+
+		inserted, err := r.engine.Exec(
+			"INSERT INTO `"+table+"` SELECT * FROM waf_log WHERE local_time >= ? AND local_time < ? LIMIT ?",
+			from, to, batch)
+		if err != nil {
+			return total, fmt.Errorf("写入归档表 %s 失败: %w", table, err)
+		}
+		affected, err := inserted.RowsAffected()
+		if err != nil || affected == 0 {
+			return total, nil
+		}
+
+		if _, err := r.engine.Exec(
+			"DELETE FROM waf_log WHERE local_time >= ? AND local_time < ? LIMIT ?",
+			from, to, affected); err != nil {
+			// 删除失败时归档表里可能已多出一份，按主键去重不会重复计入；
+			// 这里返回错误让上层记录，下次运行会重新对齐。
+			return total, fmt.Errorf("从 waf_log 删除已归档数据失败（归档表 %s）: %w", table, err)
+		}
+
+		total += affected
+		if affected < batch {
+			return total, nil
+		}
+	}
+}
+
+// nextMonthStart 返回 yyyy-MM 的次月 1 日 00:00:00。
+func nextMonthStart(ym string) string {
+	parsed, err := time.Parse("2006-01", ym)
+	if err != nil {
+		return ""
+	}
+	return parsed.AddDate(0, 1, 0).Format("2006-01-02") + " 00:00:00"
 }

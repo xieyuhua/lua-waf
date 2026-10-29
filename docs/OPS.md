@@ -117,7 +117,13 @@ mysql -u root -p waf < lua-waf/sql/waf_log.sql
 
 ### 4.7 `waf_log` 越来越大
 
-两层手段：
+三层手段：
+
+0. **归档（推荐）**：后台「系统设置 → 日志保留天数」设 N（或 `[log] RETENTION_DAYS = N`）。
+   `waf_log` 只保留最近 N 天；更早的数据**不删除**，按月归档到 `waf_log_YYYYMM`
+   （如 `waf_log_202610`，结构与 `waf_log` 完全一致，查历史直接查对应月份表）。
+   每天执行一次，按 5 万条一批处理，日志里会打印
+   `已归档超期日志 X 条（早于 …），归档表：waf_log_202609, …`。
 
 1. **查询侧**（已内置）：`local_time` / `attack_type` / `client_ip` / `server_name` / `(client_ip, local_time)`
    索引自动补齐；类型统计不再 `GROUP_CONCAT(area)`；IP 排行默认只看近 30 天。
@@ -127,11 +133,17 @@ mysql -u root -p waf < lua-waf/sql/waf_log.sql
 
 ```ini
 [log]
-RETENTION_DAYS = 180      ; 保留半年，删前请先 mysqldump 归档
+RETENTION_DAYS = 180      ; waf_log 保留 180 天，更早的按月归档
 ```
 
-> 删除是分批的（每批上限 5 万行），不会一次锁表；仍然建议在低峰期首次启用。
-> 需要「冷热分离」（历史表 `waf_log_history` + 分区）时见 `docs/ROADMAP.md` P3-1。
+查历史：
+
+```sql
+SELECT * FROM waf_log_202609 WHERE client_ip = '1.2.3.4' ORDER BY id DESC LIMIT 20;
+```
+
+> 归档是分批的（每批 5 万行，先 INSERT 到月份表再 DELETE），不会一次锁表。
+> 需要「按天分区」这种更细的粒度时见 `docs/ROADMAP.md`。
 
 ### 4.8 统计接口的缓存
 

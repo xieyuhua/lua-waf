@@ -37,9 +37,10 @@ type LogRepository interface {
 	TypeStats(ctx context.Context, filter StatsFilter) ([]model.TypeStat, error)
 	// DistinctAttackTypes 返回出现过的攻击类型（去重，供筛选项使用）。
 	DistinctAttackTypes(ctx context.Context) ([]string, error)
-	// PurgeBefore 删除本地时间早于 before（形如 2026-10-29 00:00:00）的日志，返回删除条数。
-	// 用于「数据保留策略」：后台按 [log] RETENTION_DAYS 定时清理超期日志。
-	PurgeBefore(ctx context.Context, before string) (int64, error)
+	// ArchiveBefore 把本地时间早于 before（形如 2026-10-29 00:00:00）的日志**归档**到按月表
+	// （如 waf_log_202610）后从 waf_log 删除，返回归档条数与删除条数。
+	// 用于「数据保留策略」：waf_log 只保留最近 N 天，更早的数据按月归档、不丢弃。
+	ArchiveBefore(ctx context.Context, before string) (model.LogArchiveResult, error)
 	// DateTrend 返回最近 days 天的每日攻击趋势（按日期升序）。
 	DateTrend(ctx context.Context, days int) ([]model.DateStat, error)
 }

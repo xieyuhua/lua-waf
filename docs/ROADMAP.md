@@ -58,10 +58,10 @@
 
 | 项 | 结果 |
 |---|---|
-| P3-1 `waf_log` 容量治理 | ✅ 新增 `[log] RETENTION_DAYS` + `RetentionService`（每天分批清理超期日志，默认 0=不清理）；分区/冷热分离仍列为可选后续 |
+| P3-1 `waf_log` 容量治理 | ✅ 新增 `[log] RETENTION_DAYS`（后台「系统设置」可改）+ `RetentionService`：每天把早于 N 天的数据**按月归档**到 `waf_log_YYYYMM` 再从 `waf_log` 删除（不丢数据）；按天分区列为可选后续 |
 | P3-2 统计结果缓存 | ✅ `statsCache` 泛型缓存接入概览 / 看板 / 攻击地图，TTL 45 秒 |
 | P3-3 规则匹配规模化 | ✅ lua 侧新增字面量预筛：规则里若含「必然出现的字面量」，先用朴素子串判断，不命中直接跳过 PCRE（fengari 用例覆盖命中/未命中/转义/大小写/短字面量） |
-| P3-4 IP 归属地下放到后端 | ⏸ **延后**：`pkg/geo` 只做「地区文本 → 坐标」，不做「IP → 地区」，要落地需引入 Go 版 ip2region 读取器或外部 GeoIP 服务。当前保留 lua 侧解析（顺带删掉了 util.lua 里已废弃的 `resty.mysql` 依赖） |
+| P3-4 IP 归属地下放到后端 | ✅ 已实现 `pkg/geo/ip2region.go`（v1 .db 读取器）+ `[waf] IP2REGION_DB`：启动自检通过则由消费者在入库时补全 `area`，lua 侧无需再为每个 worker 加载 12MB 数据文件；数据文件不可用时自动回退 lua 侧解析 |
 
 ## P3 历史清单（保留记录）
 
