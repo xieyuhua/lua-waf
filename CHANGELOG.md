@@ -2,6 +2,17 @@
 
 按主题汇总（新→旧）。细节以 git 提交为准。
 
+## 代码整理
+
+- 删除死代码（`mysql/ratelimit.go` 未使用的 `sortRules`）；新增 `service/secret.go` 统一「脱敏值判定」，
+  替换 4 处各自手写的 `strings.Contains(..., "****")`。
+- 拆分 `service/ai.go`（584 → 355 行）：`ai_types.go`（配置与 DTO）/ `ai_prompt.go`（提示词与错误翻译）。
+- 拆分 `views/AttackMapView.vue`（831 → 287 行）：图配置抽到 `composables/useAttackMapCharts.js`，
+  样式抽到 `views/attackmap.css`。
+- 拆分 `ingest/consumer.go`（402 → 335 行）：解析/错误翻译挪到 `consumer_parse.go`。
+- 新增 [docs/ROADMAP.md](docs/ROADMAP.md)：P2/P3 优化待办（双仓储一致性测试、app.go 拆分、
+  waf_log 容量治理与分区、统计缓存、IP 归属地下线等）。
+
 ## 日志链路
 
 - **lua 只写 Redis，Go 统一入库**：移除 `log_mysql.lua` / `log_consumer.lua` / `lib/resty/mysql.lua`；

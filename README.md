@@ -130,6 +130,7 @@ access_by_lua_file      /www/server/nginx/x-waf/access.lua;
 | [docs/RULES.md](docs/RULES.md) | 规则集格式、下发与同步、限频规则、检测顺序 |
 | [docs/API.md](docs/API.md) | 全部 HTTP 接口（含请求/响应示例） |
 | [docs/OPS.md](docs/OPS.md) | 部署、依赖、巡检、故障排查手册 |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | 优化路线图（P2/P3 待办，含收益与风险评估） |
 | [CHANGELOG.md](CHANGELOG.md) | 变更记录（按主题） |
 
 ## 7. 常用命令
