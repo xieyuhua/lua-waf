@@ -204,7 +204,7 @@ func (s *LuaConfigService) Update(ctx context.Context, values map[string]string)
 			return nil, ErrInvalid.New("不支持修改 %s", key)
 		}
 		// 密钥类：前端回传脱敏值表示「不修改」
-		if field.Type == luaTypeSecret && strings.Contains(raw, "****") {
+		if field.Type == luaTypeSecret && containsMask(raw) {
 			continue
 		}
 		value, err := normalizeLuaValue(field, raw)

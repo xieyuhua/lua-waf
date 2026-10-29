@@ -355,14 +355,17 @@ func mask(value string) string {
 	case trimmed == "":
 		return ""
 	case len(trimmed) <= 8:
-		return "********"
+		return maskPlaceholder
 	default:
 		return trimmed[:4] + "********" + trimmed[len(trimmed)-4:]
 	}
 }
 
 // isMasked 判断入参是否为脱敏占位串。
-func isMasked(value string) bool { return strings.Contains(value, "****") }
+// isMasked 判断提交值是否为脱敏占位（表示"保持原值不变"）。
+func isMasked(value string) bool {
+	return containsMask(value)
+}
 
 // trailingSlash 保证目录型配置以分隔符结尾。
 func trailingSlash(path string) string {

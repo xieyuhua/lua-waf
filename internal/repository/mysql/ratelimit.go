@@ -2,7 +2,6 @@ package mysql
 
 import (
 	"context"
-	"sort"
 
 	"wafadmin/internal/model"
 )
@@ -70,9 +69,4 @@ func (r *rateLimitRepo) Delete(ctx context.Context, id int64) error {
 
 	_, err := r.store.Engine.ID(id).Delete(new(model.RateLimitRule))
 	return err
-}
-
-// sortRules 保证下发顺序稳定（Id 升序，越具体的规则越靠前由 Id 决定）。
-func sortRules(rules []model.RateLimitRule) {
-	sort.Slice(rules, func(i, j int) bool { return rules[i].Id < rules[j].Id })
 }

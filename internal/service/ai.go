@@ -225,7 +225,7 @@ func (s *AIService) SaveConfig(ctx context.Context, cfg AIConfig) (AIConfig, err
 		return AIConfig{}, err
 	}
 
-	if strings.Contains(cfg.APIKey, "********") || strings.TrimSpace(cfg.APIKey) == "" {
+	if containsMask(cfg.APIKey) || strings.TrimSpace(cfg.APIKey) == "" {
 		cfg.APIKey = current.APIKey
 	}
 	cfg.BaseURL = strings.TrimSpace(cfg.BaseURL)

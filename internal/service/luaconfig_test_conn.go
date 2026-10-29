@@ -59,7 +59,7 @@ func (s *LuaConfigService) TestConnections(ctx context.Context, values map[strin
 
 	pick := func(key string) string {
 		value := strings.TrimSpace(values[key])
-		if value != "" && !strings.Contains(value, "****") {
+		if value != "" && !containsMask(value) {
 			return value
 		}
 		return strings.TrimSpace(saved[key])
