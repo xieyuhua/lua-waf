@@ -213,6 +213,10 @@ func (c *Consumer) consumeOnce(ctx context.Context, client *redis.Client) error 
 
 	if _, err := c.Logs.BatchCreate(ctx, records); err != nil {
 		// 入库失败：记录仍留在 processing，下一轮重试（超过阈值再告警）
+		if hint := explainInsertError(err); hint != "" {
+			c.logf("[error] 日志批量入库失败：%v %s", err, hint)
+		}
+		// 入库失败：记录仍留在 processing，下一轮重试（超过阈值再告警）
 		c.addFailed(int64(len(records)))
 		return err
 	}
@@ -381,6 +385,23 @@ func (c *Consumer) setConnected(value bool) {
 	c.mu.Unlock()
 }
 
+// explainInsertError 把常见建表/权限问题翻译成可操作的提示。
+func explainInsertError(err error) string {
+	if err == nil {
+		return ""
+	}
+
+	message := err.Error()
+	switch {
+	case strings.Contains(message, "1146"), strings.Contains(message, "doesn't exist"):
+		return "（waf_log 表不存在：重启 wafadmin 会自动建表；若数据库账号无建表权限，请手工执行 lua-waf/sql/waf_log.sql）"
+	case strings.Contains(message, "1142"), strings.Contains(message, "denied"):
+		return "（数据库账号权限不足：需要该库的 INSERT/CREATE 权限）"
+	case strings.Contains(message, "1406"), strings.Contains(message, "Data too long"):
+		return "（字段超长：检查 waf_log 表字段长度是否与 model/waflog.go 一致）"
+	}
+	return ""
+}
 func (c *Consumer) setError(err error) {
 	if err == nil {
 		return

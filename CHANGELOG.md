@@ -94,6 +94,19 @@
   接口 `GET/POST/PUT/DELETE /api/ratelimit`、`PUT /api/ratelimit/{id}/enabled`、`POST /api/ratelimit/sync`；
   校验覆盖：正则合法性、维度名必填、阈值 1~1000000、窗口 1~86400、动作枚举。
 
+### 修复（`Table ''waf.waf_log'' doesn''t exist`）
+
+- **`waf_log` 之前不在自动建表清单里**：`ensureTables` 只建 site/rules/user/slow_sql/setting
+  （以及新增的 ratelimit_rule），`waf_log` 一直依赖 lua 侧 `sql/waf_log.sql` 手工执行，
+  换库/新库后消费者一写就报 `Error 1146`，日志全部入库失败。
+- 现已加入自动建表清单，首次启动打印 `[info] 已创建表 waf_log`，
+  随后 `ensureIndexes` 自动补齐 local_time / attack_type / client_ip / server_name / (client_ip, local_time) 索引。
+- **建表失败不再阻塞启动**：改为 `[error] 创建表 X 失败：…` 并（对 waf_log）额外打印
+  「用有建表权限的账号执行 `mysql -u root -p <库名> < lua-waf/sql/waf_log.sql`」，
+  避免因权限不足导致整个后台起不来。
+- 消费端对入库错误做翻译：1146 表不存在 / 1142 权限不足 / 1406 字段超长，
+  直接 `[error] 日志批量入库失败：… （附带修复建议）`。
+
 ### 修复（「从规则文件同步」条数不准）
 
 - **「已存在」把重复条目也算进去了**：跨目录/跨文件重复出现的规则，之前每条都累加 `kept`，

@@ -149,6 +149,28 @@ Redis 建议：开启 AOF（`appendonly yes`），内存策略设为 `noeviction
 `grep '日志输出模式' /www/server/nginx/logs/error.log` 就能确认**nginx 实际读到的模式**——
 如果这里显示 `file`，说明 nginx 加载的 config.lua 不是后台改的那一份（或被旧文件覆盖）。
 
+### 4.2.1 报 `Table ''waf.waf_log'' doesn''t exist` 怎么办
+
+`waf_log` 表现在由后台启动时**自动创建**（`ensureTables` 里已加入），首次启动日志会打印：
+
+```
+[info] 已创建表 waf_log
+```
+
+如果看到的是：
+
+```
+[error] 创建表 waf_log 失败：… Error 1142 …
+[error] waf_log 建不出来，日志会一直入库失败（Error 1146）。请用有建表权限的账号执行：
+  mysql -u root -p waf < lua-waf/sql/waf_log.sql
+```
+
+说明当前数据库账号没有建表权限，用 root（或有权限的账号）执行一遍 `lua-waf/sql/waf_log.sql` 即可；
+表建好后消费会自动恢复，不需要重启。
+
+哈希/索引补充：建表后 `ensureIndexes` 会顺带补齐
+`local_time / attack_type / client_ip / server_name / (client_ip, local_time)` 索引。
+
 ### 4.3 「Redis 里的日志一直没被消费」怎么查
 
 按顺序核对（启动日志里会直接打印结论）：

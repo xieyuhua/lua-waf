@@ -43,6 +43,9 @@ func (s *Store) tables() []tableSpec {
 		{name: "slow_sql", bean: new(model.SlowSQL)},
 		{name: "setting", bean: new(model.Setting)},
 		{name: "ratelimit_rule", bean: new(model.RateLimitRule)},
+		// waf_log 由后台消费/写入，但表也要自动建：早期版本只靠 lua 侧 sql 脚本创建，
+		// 新库或换库后会出现 "Table 'waf.waf_log' doesn't exist"，导致日志全部入库失败。
+		{name: "waf_log", bean: new(model.WafLog)},
 	}
 }
 
@@ -163,7 +166,14 @@ func (s *Store) ensureTables(engine *xorm.Engine, database config.Database) erro
 			return fmt.Errorf("表 %s 不存在，且已关闭自动建表（database.AUTO_MIGRATE = false），请手工建表", item.name)
 		}
 		if err := engine.Sync2(item.bean); err != nil {
-			return fmt.Errorf("创建表 %s 失败: %w", item.name, err)
+			// 建表失败不阻塞启动：后台仍要能进（只读功能可用），
+			// 但必须把原因与修复方式讲清楚，否则表现就是日志一直入库失败。
+			log.Printf("[error] 创建表 %s 失败：%v", item.name, err)
+			if item.name == "waf_log" {
+				log.Printf("[error] waf_log 建不出来，日志会一直入库失败（Error 1146）。请用有建表权限的账号执行：\n"+
+					"  mysql -u root -p %s < lua-waf/sql/waf_log.sql", database.Name)
+			}
+			continue
 		}
 		log.Printf("[info] 已创建表 %s", item.name)
 	}
