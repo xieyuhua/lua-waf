@@ -115,6 +115,36 @@ mysql -u root -p waf < lua-waf/sql/waf_log.sql
 （常见于面板的站点流量统计）。`ls -l` 看 socket 属主/权限，给 nginx worker 用户可写权限，
 或改成 `access_log /path/site.log main;` / `syslog:server=127.0.0.1:514`。
 
+### 4.6b 怀疑「规则没生效 / 被绕过」
+
+先用规则自检工具定位，不必凭感觉加规则：
+
+```bash
+# 全量自检：列出永远命中不了的死规则、写错的正则
+./wafadmin ruletest -config conf/app.ini
+
+# 只查某一类
+./wafadmin ruletest -config conf/app.ini -type args
+
+# 载荷验证：这条参数/URL 到底会被哪条规则拦住（按 lua 检查顺序）
+./wafadmin ruletest -config conf/app.ini -payload "id=1 union select 1&path=../../etc/passwd"
+
+# CI 卡口：发现死规则就失败
+./wafadmin ruletest -config conf/app.ini -strict
+```
+
+后台「WAF 规则」页右上角也有 **规则自检** 按钮，支持「全量自检」与「载荷验证」两种模式。
+
+判定口径：
+
+| 状态 | 含义 | 要不要处理 |
+|---|---|---|
+| `dead` | 连按规则自己生成的样例都命中不了 | **必须处理**（规则写坏了） |
+| `bad-regex` | 正则不合法 | **必须处理** |
+| `go-incompat` | Go/RE2 不支持（反向引用、前瞻） | 确认 lua 侧是否真生效（PCRE 支持） |
+| `narrow` | 有效，但内置攻击样例没覆盖该形态 | 不用，属正常 |
+| `skipped` | IP 名单/URL 白名单，无固定样例 | 不用 |
+
 ### 4.7 `waf_log` 越来越大
 
 三层手段：

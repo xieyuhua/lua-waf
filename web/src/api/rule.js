@@ -10,6 +10,8 @@ export const ruleApi = {
   update: (id, payload) => api.put(`/rules/${id}`, payload),
   remove: (id) => api.del(`/rules/${id}`),
   validate: (payload) => api.post('/rules/validate', payload),
+  /** 规则自检：payload 为空时做全量自检 */
+  selfTest: (payload) => api.post('/rules/selftest', payload ?? {}),
   sync: () => api.post('/rules/sync'),
   /** 规则文件与数据库取并集：缺少的新增、已有的保留 */
   syncFiles: () => api.post('/rules/sync-files'),

@@ -5,6 +5,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { ruleApi } from '../api/rule'
 import { viewport } from '../utils/responsive'
 import { ruleStore } from '../stores/rules'
+import RuleSelfTestDialog from '../components/RuleSelfTestDialog.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -12,6 +13,8 @@ const router = useRouter()
 const loading = ref(false)
 const syncing = ref(false)
 const syncingFiles = ref(false)
+// 规则自检对话框（检查规则能否命中）
+const showSelfTest = ref(false)
 const rows = ref([])
 const keyword = ref('')
 
@@ -211,7 +214,8 @@ onMounted(async () => {
         <p class="waf-page-sub">{{ currentType.desc }} · 规则文件 <code class="waf-mono">{{ currentType.file }}</code></p>
       </div>
       <div style="display: flex; gap: 10px">
-        <el-button :loading="syncingFiles" @click="syncFromFiles"><el-icon><Refresh /></el-icon> 从规则文件同步</el-button>
+        <el-button @click="showSelfTest = true"><el-icon><Search /></el-icon> 规则自检</el-button>
+<el-button :loading="syncingFiles" @click="syncFromFiles"><el-icon><Refresh /></el-icon> 从规则文件同步</el-button>
       <el-button :loading="syncing" @click="sync"><el-icon><Upload /></el-icon> 下发全部规则</el-button>
         <el-button type="primary" @click="openCreate"><el-icon><Plus /></el-icon> 新增规则</el-button>
       </div>
@@ -302,6 +306,7 @@ onMounted(async () => {
       </template>
     </el-dialog>
   </div>
+  <RuleSelfTestDialog v-model="showSelfTest" />
 </template>
 
 <style scoped>

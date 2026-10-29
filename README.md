@@ -141,3 +141,12 @@ go test ./...                     # 测试（含 memory 仓储的回归用例）
 ./wafadmin reset-password admin   # 重置后台密码（CLI）
 curl -s localhost:5002/api/health # 健康检查
 ```
+## 规则自检（命令行 / 后台）
+
+```bash
+./wafadmin ruletest -config conf/app.ini                 # 全量自检：找死规则
+./wafadmin ruletest -config conf/app.ini -payload "id=1 union select 1"   # 载荷验证
+./wafadmin ruletest -config conf/app.ini -strict -json    # CI 卡口
+```
+
+后台「WAF 规则」页右上角「规则自检」= 同样能力的可视化版本（全量自检 / 载荷验证）。

@@ -148,6 +148,32 @@
 | POST | `/api/ai/slow-sql/analyze` | 分析慢 SQL |
 | GET | `/api/ai/slow-sql/results/{id}` | 回看慢 SQL 分析结果 |
 
+## 8.1 规则自检
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/api/rules/selftest` | 检查规则能否命中。空 body = 全量自检；带 `payload` = 载荷验证 |
+
+```json
+// 全量自检
+{}
+// 载荷验证：看这条参数/URL 会命中哪些规则
+{ "payload": "id=1 union select 1", "type": "args", "all": false }
+```
+
+返回 `report`：
+
+| 字段 | 说明 |
+|---|---|
+| `total` / `hit` | 规则总数 / 命中内置攻击样例的条数 |
+| `dead` | **死规则**：连按规则自己生成的样例都命中不了（永远不会生效） |
+| `narrow` | 规则有效，只是内置样例没覆盖它的形态（正常） |
+| `bad_regex` / `go_incompat` | 正则不合法 / RE2 不支持（PCRE 可能有效） |
+| `skipped` | IP 名单、URL 白名单等无固定样例，只做语法与自生成检查 |
+| `results[]` | 逐条结果：`rule_id` / `rule_type` / `rule_item` / `status` / `sample` / `error` |
+
+> 载荷模式下 `results` 只包含命中项，按 lua 侧检查顺序（whiteip → blackip → header → useragent → whiteUrl → url → cookie → args → post）排列。
+
 ## 9.1 告警通知（企业微信机器人）
 
 | 方法 | 路径 | 说明 |

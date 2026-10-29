@@ -38,6 +38,8 @@ func (r *Runner) run(name string, args []string) int {
 		return r.resetPassword(args)
 	case "list-users":
 		return r.listUsers(args)
+	case "ruletest":
+		return r.ruleTest(args)
 	case "version", "--version", "-v":
 		fmt.Fprintf(r.Stdout, "wafadmin %s\n", r.Version)
 		return 0
@@ -135,6 +137,7 @@ func (r *Runner) usage() {
 子命令:
   reset-password   重置（或创建）后台账号口令
   list-users       列出后台账号
+  ruletest         检查规则能否命中（全量自检 / 载荷验证）
   version          显示版本
   help             显示本帮助
 
