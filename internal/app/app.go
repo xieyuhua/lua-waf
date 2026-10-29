@@ -16,6 +16,7 @@ import (
 
 	"wafadmin/internal/repository"
 
+	"wafadmin/internal/model"
 	"wafadmin/internal/service"
 	"wafadmin/internal/transport/httpapi"
 	"wafadmin/pkg/geo"
@@ -99,6 +100,9 @@ func New(opts Options) (*App, error) {
 	}
 
 	// 日志入库：lua 只写 Redis，本进程消费后批量写 MySQL（默认关闭，按需在 [log] INGEST_ENABLED 开启）
+	// 告警推送：与 Deps.Alert 共用同一实例（命中勾选规则时提醒）
+	alertNotifier := deps.Alert.Notify
+
 	consumer := ingest.New(ingest.Options{
 		Redis: redis.Options{
 			Addr:     cfg.LogIngest.Addr,
@@ -107,6 +111,7 @@ func New(opts Options) (*App, error) {
 		},
 		Source: cfg.LogIngest.ListKey,
 		Geo:    resolveIP2Region(cfg),
+		Notify: alertNotifier,
 		Batch:  cfg.LogIngest.Batch,
 		Block:  time.Duration(cfg.LogIngest.BlockMS) * time.Millisecond,
 	}, repos.Log)
@@ -223,4 +228,12 @@ func resolveIP2Region(cfg *config.Config) func(ip string) (string, bool) {
 
 	log.Printf("[info] IP 归属地解析已启用（后端）：%s，自检 8.8.8.8 = %s", cfg.IP2RegionDB, sample)
 	return region.Search
+}
+
+// alertNotify 把告警服务包装成消费者回调（服务为空时返回 nil，消费者会自动跳过）。
+func alertNotify(alert *service.AlertService) func(ctx context.Context, logs []model.WafLog) {
+	if alert == nil {
+		return nil
+	}
+	return alert.Notify
 }

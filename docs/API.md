@@ -148,6 +148,24 @@
 | POST | `/api/ai/slow-sql/analyze` | 分析慢 SQL |
 | GET | `/api/ai/slow-sql/results/{id}` | 回看慢 SQL 分析结果 |
 
+## 9.1 告警通知（企业微信机器人）
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/alert/config` | 读取告警配置与运行状态（`enabled` / `webhook_url` / `rule_ids` / `interval_sec` / `rule_count` / `last_sent_at` / `last_error`） |
+| PUT | `/api/alert/config` | 保存配置（勾选规则即「命中这些规则才提醒」） |
+| POST | `/api/alert/test` | 发送测试消息；请求体可只带 `webhook_url` 用于保存前试通 |
+
+请求体示例：
+
+```json
+{ "enabled": true, "webhook_url": "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx",
+  "rule_ids": [4, 5, 12], "interval_sec": 60, "mention_all": false }
+```
+
+> 触发发生在日志入库消费者内部：一批日志成功入库后，命中 `rule_ids` 对应规则内容（即日志的 `rule_tag`）
+> 的记录会被推送；同一规则在 `interval_sec` 内只提醒一次。
+
 ## 10. 系统
 
 | 方法 | 路径 | 说明 |

@@ -23,6 +23,9 @@ type builder struct {
 	// retention 为日志归档服务（保留天数支持后台热更新）。
 	retention *service.RetentionService
 
+	// alert 为告警推送服务（命中勾选规则时提醒）。
+	alert *service.AlertService
+
 	// nginx 为共享的 nginx 配置管理器（热更新与配置下发共用同一实例）。
 	nginx *nginx.Manager
 	// store 为 MySQL 仓储实例（演示模式为 nil），用于运行时开关 SQL 日志。

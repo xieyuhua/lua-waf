@@ -26,6 +26,7 @@ import (
 
 func (b *builder) services(repos repository.Repositories) (*httpapi.Deps, error) {
 	// 日志归档策略：RETENTION_DAYS > 0 时每天把超期日志按月归档到 waf_log_YYYYMM（默认 0 = 不归档）
+	b.alert = &service.AlertService{Settings: repos.Setting, Rules: repos.Rule}
 	retention := &service.RetentionService{Logs: repos.Log, Days: b.cfg.LogIngest.RetentionDays}
 	b.retention = retention
 	go retention.Run(context.Background())
@@ -33,6 +34,7 @@ func (b *builder) services(repos repository.Repositories) (*httpapi.Deps, error)
 	hasher := crypto.Hasher{}
 	nginxManager := b.nginxManager()
 	settings := &service.SettingService{Repo: repos.Setting}
+	// 告警：命中勾选规则时推送企业微信机器人
 
 	sites := &service.SiteService{Sites: repos.Site, Nginx: nginxManager, PageSize: b.cfg.PageSize}
 	rules := &service.RuleService{Rules: repos.Rule, Catalog: model.Catalog, Nginx: nginxManager, Logs: repos.Log}
@@ -70,6 +72,7 @@ func (b *builder) services(repos repository.Repositories) (*httpapi.Deps, error)
 		Map:       &service.AttackMapService{Logs: repos.Log, Sites: repos.Site, Resolver: geo.Default, TargetArea: b.cfg.MapTarget},
 		Settings:  settings,
 		RateLimit: &service.RateLimitService{Rules: repos.RateLimit, RuleDir: b.cfg.RulePath, Reloader: nginxManager},
+		Alert:     b.alert,
 		Sync: &service.SyncService{
 			Cfg:    b.cfg,
 			Sites:  sites,

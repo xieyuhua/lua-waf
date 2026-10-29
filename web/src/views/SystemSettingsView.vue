@@ -5,6 +5,7 @@ import AppConfigPanel from '../components/config/AppConfigPanel.vue'
 import AppearancePanel from '../components/config/AppearancePanel.vue'
 import AiConfigPanel from '../components/config/AiConfigPanel.vue'
 import AccountPanel from '../components/config/AccountPanel.vue'
+import AlertPanel from '../components/config/AlertPanel.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -20,6 +21,11 @@ const TABS = {
     label: '外观设置',
     hint: '设置后台界面的明暗模式与主题色，保存在浏览器本地',
     component: AppearancePanel
+  },
+  alert: {
+    label: '告警通知',
+    hint: '命中勾选的规则时推送到企业微信群机器人',
+    component: AlertPanel
   },
   ai: {
     label: 'AI 设置',

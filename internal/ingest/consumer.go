@@ -34,6 +34,8 @@ type Options struct {
 	// Geo 为可选的 IP 归属地解析（后端解析；lua 侧不再需要加载 ip2region）。
 	// 返回 ok=false 表示无法解析，此时保留记录原有的 area。
 	Geo func(ip string) (string, bool)
+	// Notify 为可选的告警回调：一批日志成功入库后调用（命中勾选规则时推送提醒）。
+	Notify func(ctx context.Context, logs []model.WafLog)
 	// Source 为源队列键（lua RPUSH 的列表）。
 	Source string
 	// Processing 为处理中队列键（用于崩溃恢复）。
@@ -244,6 +246,11 @@ func (c *Consumer) consumeOnce(ctx context.Context, client *redis.Client) error 
 	}
 	c.addWritten(int64(len(records)))
 	c.markFlushed()
+
+	// 入库成功后再推送告警（失败也不影响入库与队列）
+	if c.Opts.Notify != nil {
+		c.Opts.Notify(ctx, records)
+	}
 	return nil
 }
 
