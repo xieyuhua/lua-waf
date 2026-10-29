@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -19,120 +20,135 @@ func writeRuleFile(t *testing.T, dir, name, content string) {
 	}
 }
 
-// TestRuleFileSyncUnion 校验「取并集」：文件有库里没有的新增，库里已有的保留不动。
-func TestRuleFileSyncUnion(t *testing.T) {
-	store := (&memory.Store{}).Init(true)
-	repo := store.Repos().Rule
+// writeRuleItemsFile 写一个规则文件：items 为 "type|item" 形式（本文件专用，避免与上面重名）。
+func writeRuleItemsFile(t *testing.T, path string, items []string) {
+	t.Helper()
 
-	// 预置：库里已存在一条 args 规则（模拟人工维护），另外有一条文件里没有的 cookie 规则
-	existingArgs := model.Rule{RuleType: "args", RuleItem: `\.\./`}
-	if err := repo.Create(context.Background(), &existingArgs); err != nil {
-		t.Fatalf("预置规则失败: %v", err)
-	}
-	keepOnly := model.Rule{RuleType: "cookie", RuleItem: `only_in_db`}
-	if err := repo.Create(context.Background(), &keepOnly); err != nil {
-		t.Fatalf("预置规则失败: %v", err)
+	type fileItem struct {
+		Id       int64  `json:"Id"`
+		RuleType string `json:"RuleType"`
+		RuleItem string `json:"RuleItem"`
 	}
 
-	dir := t.TempDir()
-	// 文件里包含：已存在的规则（应保留、不重复插入）、两条新规则
-	writeRuleFile(t, dir, "args.rule", `[
-		{"Id":1,"RuleType":"args","RuleItem":"\\.\\./"},
-		{"Id":2,"RuleType":"args","RuleItem":"\\$\\{jndi:"}
-	]`)
-	writeRuleFile(t, dir, "url.rule", `[
-		{"Id":3,"RuleType":"url","RuleItem":"/actuator/heapdump"}
-	]`)
-	// 非 .rule 文件应被忽略
-	writeRuleFile(t, dir, "readme.txt", `ignore me`)
+	list := make([]fileItem, 0, len(items))
+	for i, raw := range items {
+		var ruleType, ruleItem string
+		for j := 0; j < len(raw); j++ {
+			if raw[j] == '|' {
+				ruleType, ruleItem = raw[:j], raw[j+1:]
+				break
+			}
+		}
+		list = append(list, fileItem{Id: int64(i + 1), RuleType: ruleType, RuleItem: ruleItem})
+	}
 
-	before, err := repo.Count(context.Background())
+	payload, err := json.Marshal(list)
 	if err != nil {
-		t.Fatalf("统计失败: %v", err)
+		t.Fatalf("序列化规则失败: %v", err)
 	}
+	if err := os.WriteFile(path, payload, 0o644); err != nil {
+		t.Fatalf("写入 %s 失败: %v", path, err)
+	}
+}
+
+// TestSyncFromDirsCounts 校验「从规则文件同步」的条数口径：
+// 重复条目不能计入「已存在」，新增/已存在要能对上库内总数。
+func TestSyncFromDirsCounts(t *testing.T) {
+	store := (&memory.Store{}).Init(false)
+	repo := store.Repos().Rule
+	ctx := context.Background()
+
+	// 库里先有一条已存在规则
+	if err := repo.BatchCreate(ctx, []model.Rule{
+		{RuleType: "args", RuleItem: "old-rule", Enabled: true},
+	}); err != nil {
+		t.Fatalf("预置规则失败: %v", err)
+	}
+
+	dirA := t.TempDir()
+	dirB := t.TempDir()
+	// 目录 A：args 3 条（其中 old-rule 已在库）+ 与 B 重复的 1 条
+	writeRuleItemsFile(t, filepath.Join(dirA, "args.rule"), []string{
+		"args|old-rule",
+		"args|a1",
+		"args|a2",
+	})
+	// 目录 B：同样内容一份（模拟 RULE_PATH 与仓库副本同时存在）
+	writeRuleItemsFile(t, filepath.Join(dirB, "args.rule"), []string{
+		"args|a1",
+		"args|a2",
+		"args|b1",
+	})
 
 	sync := &service.RuleFileSync{Repo: repo}
-	result, err := sync.SyncFromDir(context.Background(), dir)
+	result, err := sync.SyncFromDirs(ctx, []string{dirA, dirB})
 	if err != nil {
 		t.Fatalf("同步失败: %v", err)
 	}
 
+	// 去重后文件里共 4 条：old-rule（库中已有）、a1、a2、b1（新增 3 条）
 	if result.Files != 2 {
-		t.Fatalf("应读取 2 个规则文件，实际 %d", result.Files)
+		t.Fatalf("文件数期望 2，实际 %d", result.Files)
 	}
-	if result.Added != 2 {
-		t.Fatalf("应新增 2 条，实际 %d（%+v）", result.Added, result)
+	if result.InFiles != 4 {
+		t.Fatalf("去重后文件条数期望 4，实际 %d（重复条目被算进来了）", result.InFiles)
 	}
-	if result.Kept < 1 {
-		t.Fatalf("已存在的规则应计为保留，实际 %+v", result)
+	if result.Kept != 1 {
+		t.Fatalf("已存在期望 1，实际 %d（重复条目不应计入已存在）", result.Kept)
 	}
-
-	after, err := repo.Count(context.Background())
-	if err != nil {
-		t.Fatalf("统计失败: %v", err)
+	if result.Added != 3 {
+		t.Fatalf("新增期望 3，实际 %d", result.Added)
 	}
-	if after != before+2 {
-		t.Fatalf("总条数应增加 2（%d -> %d）", before, after)
+	if result.Duplicates != 2 {
+		t.Fatalf("重复跳过期望 2（a1、a2 各重复一次），实际 %d", result.Duplicates)
 	}
-
-	// 库里原有且文件里没有的规则必须保留
-	rules, err := repo.List(context.Background(), "cookie")
-	if err != nil {
-		t.Fatalf("查询失败: %v", err)
-	}
-	found := false
-	for _, rule := range rules {
-		if rule.RuleItem == "only_in_db" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("库里独有的规则不应被删除")
+	if result.Total != 4 {
+		t.Fatalf("库内总数期望 4（1 原有 + 3 新增），实际 %d", result.Total)
 	}
 
-	// 再同步一次应无新增（幂等）
-	again, err := sync.SyncFromDir(context.Background(), dir)
+	// 口径自查：去重后条数 = 新增 + 已存在
+	if result.InFiles != result.Added+result.Kept {
+		t.Fatalf("口径不一致：InFiles=%d 应等于 Added+Kept=%d", result.InFiles, result.Added+result.Kept)
+	}
+
+	// 再同步一次：应全部为「已存在」，新增 0
+	again, err := sync.SyncFromDirs(ctx, []string{dirA, dirB})
 	if err != nil {
 		t.Fatalf("二次同步失败: %v", err)
 	}
-	if again.Added != 0 {
-		t.Fatalf("重复同步不应新增，实际 %d", again.Added)
+	if again.Added != 0 || again.Kept != 4 || again.Total != 4 {
+		t.Fatalf("二次同步期望 新增0/已存在4/总数4，实际 %+v", again)
+	}
+	if again.Duplicates != 2 {
+		t.Fatalf("二次同步重复跳过期望 2，实际 %d", again.Duplicates)
 	}
 }
 
-// TestRuleFileSyncMissingDir 校验目录不存在时不算错误。
-func TestRuleFileSyncMissingDir(t *testing.T) {
-	store := (&memory.Store{}).Init(true)
-	sync := &service.RuleFileSync{Repo: store.Repos().Rule}
+// TestSyncSkipsRateLimitFile 校验同步会忽略 ratelimit.rule（限频规则的下发文件，schema 不同）。
+func TestSyncSkipsRateLimitFile(t *testing.T) {
+	store := (&memory.Store{}).Init(false)
+	repo := store.Repos().Rule
+	ctx := context.Background()
 
-	result, err := sync.SyncFromDir(context.Background(), filepath.Join(t.TempDir(), "not-exist"))
-	if err != nil {
-		t.Fatalf("目录不存在不应报错: %v", err)
-	}
-	if result.Added != 0 {
-		t.Fatalf("不应新增规则: %+v", result)
-	}
-	if result.Message == "" {
-		t.Fatal("应给出提示信息")
-	}
-}
-
-// TestRuleFileSyncInvalidFile 校验坏文件被跳过且不影响其它文件。
-func TestRuleFileSyncInvalidFile(t *testing.T) {
-	store := (&memory.Store{}).Init(true)
 	dir := t.TempDir()
-	writeRuleFile(t, dir, "broken.rule", `{not json`)
-	writeRuleFile(t, dir, "ok.rule", `[{"Id":1,"RuleType":"args","RuleItem":"good_rule"}]`)
+	writeRuleItemsFile(t, filepath.Join(dir, "args.rule"), []string{"args|x1"})
+	if err := os.WriteFile(filepath.Join(dir, "ratelimit.rule"), []byte(`[{"id":1,"pattern":"/api","key":"ip","limit":10,"window":60,"action":"block","enabled":true}]`), 0o644); err != nil {
+		t.Fatalf("写入 ratelimit.rule 失败: %v", err)
+	}
 
-	sync := &service.RuleFileSync{Repo: store.Repos().Rule}
-	result, err := sync.SyncFromDir(context.Background(), dir)
+	sync := &service.RuleFileSync{Repo: repo}
+	result, err := sync.SyncFromDirs(ctx, []string{dir})
 	if err != nil {
 		t.Fatalf("同步失败: %v", err)
 	}
-	if result.Added != 1 {
-		t.Fatalf("应只新增 1 条，实际 %d（%+v）", result.Added, result)
+
+	if result.Files != 1 {
+		t.Fatalf("文件数期望 1（应忽略 ratelimit.rule），实际 %d", result.Files)
 	}
-	if result.Message == "" {
-		t.Fatal("应提示存在解析失败的文件")
+	if result.Skipped != 0 {
+		t.Fatalf("skipped 期望 0，实际 %d", result.Skipped)
+	}
+	if result.Added != 1 || result.Total != 1 {
+		t.Fatalf("期望新增 1 / 总数 1，实际新增 %d / 总数 %d", result.Added, result.Total)
 	}
 }

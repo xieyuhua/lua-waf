@@ -94,6 +94,17 @@
   接口 `GET/POST/PUT/DELETE /api/ratelimit`、`PUT /api/ratelimit/{id}/enabled`、`POST /api/ratelimit/sync`；
   校验覆盖：正则合法性、维度名必填、阈值 1~1000000、窗口 1~86400、动作枚举。
 
+### 修复（「从规则文件同步」条数不准）
+
+- **「已存在」把重复条目也算进去了**：跨目录/跨文件重复出现的规则，之前每条都累加 `kept`，
+  于是出现「保留 337 条」而库内其实只有 216 条的虚高。现在用 `seen` 去重：
+  重复条目单独计入新增的 `duplicates` 字段，不再污染「已存在」。
+- **口径可自证**：新增 `in_files`（去重后文件条数）= `added` + `kept`；新增 `total`（同步后库内规则总数），
+  结果提示改为「文件 11 个，去重后 210 条：新增 0 条，已存在 210 条；库内现有 216 条规则」。
+- **同步误扫 `ratelimit.rule`**：限频规则的下发文件 schema 是 `{id,pattern,key,...}`，与规则集不同，
+  以前会被当作「无效条目」计入 skipped 并让文件数偏大，现在直接跳过。
+- 前端同步提示同步展示 `duplicates / total`，并把「保留」改称「已存在」。
+
 ### 修复（所有请求被误判为「畸形请求」）
 
 - 根因：`malformed.lua` 用 `ngx.req.get_headers(0, true)` 取头，`raw=true` 时 **头名不会被转小写**

@@ -91,8 +91,11 @@ async function syncFromFiles() {
   syncingFiles.value = true
   try {
     const result = await ruleApi.syncFiles()
-    const parts = [`新增 ${result.added} 条`, `保留 ${result.kept} 条`]
-    if (result.skipped) parts.push(`跳过 ${result.skipped} 条`)
+    // 口径：文件里的条数（去重后）= 新增 + 已存在；重复条目单独统计，库内总数用于核对
+    const parts = [`新增 ${result.added} 条`, `已存在 ${result.kept} 条`]
+    if (result.duplicates) parts.push(`文件内重复 ${result.duplicates} 条`)
+    if (result.skipped) parts.push(`无效 ${result.skipped} 条`)
+    if (result.total !== undefined) parts.push(`库内共 ${result.total} 条`)
     ElMessage.success(`规则文件同步完成：${parts.join('，')}`)
     if (result.message) ElMessage.info(result.message)
     await load()

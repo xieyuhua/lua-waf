@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"wafadmin/internal/model"
@@ -23,8 +24,12 @@ type RuleFileSyncResult struct {
 	Added int `json:"added"`
 	// Kept 为数据库已存在、保持不变（不覆盖、不删除）的条数。
 	Kept int `json:"kept"`
-	// Skipped 为无效条目（缺字段/重复）的条数。
+	// Skipped 为无效条目（缺 RuleType/RuleItem）的条数。
 	Skipped int `json:"skipped"`
+	// Duplicates 为跨文件/跨目录重复出现、只算一次的条数。
+	Duplicates int `json:"duplicates"`
+	// Total 为同步完成后数据库中的规则总数（便于核对）。
+	Total int64 `json:"total"`
 	// Message 为提示信息（目录不存在等）。
 	Message string `json:"message"`
 }
@@ -116,6 +121,10 @@ func (s *RuleFileSync) syncFromDirs(ctx context.Context, dirs []string) (RuleFil
 		Item string
 	}, 0, 16)
 
+	// seen 记录本次扫描中出现过的规则（含已在库的），
+	// 用于把「跨文件/跨目录重复」单独计数，避免把重复条目算进「已存在」而虚高。
+	seen := make(map[string]struct{}, 256)
+
 	for _, dir := range dirs {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
@@ -126,6 +135,12 @@ func (s *RuleFileSync) syncFromDirs(ctx context.Context, dirs []string) (RuleFil
 
 		for _, entry := range entries {
 			if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".rule") {
+				continue
+			}
+			// ratelimit.rule 是「限频规则」的下发产物（schema 为 {id,pattern,key,...}），
+			// 不属于本模块的 {Id,RuleType,RuleItem} 规则集，必须跳过，
+			// 否则会被当成「无效条目」计入 skipped，让统计看起来不对。
+			if strings.EqualFold(entry.Name(), rateLimitFileName) {
 				continue
 			}
 			result.Files++
@@ -153,9 +168,15 @@ func (s *RuleFileSync) syncFromDirs(ctx context.Context, dirs []string) (RuleFil
 					result.Skipped++
 					continue
 				}
+				key := ruleKey(ruleType, ruleItem)
+				if _, ok := seen[key]; ok {
+					// 同一规则在多个文件/目录里重复出现：只算一次，单独计数
+					result.Duplicates++
+					continue
+				}
+				seen[key] = struct{}{}
 				result.InFiles++
 
-				key := ruleKey(ruleType, ruleItem)
 				if _, ok := known[key]; ok {
 					result.Kept++
 					continue
@@ -171,8 +192,9 @@ func (s *RuleFileSync) syncFromDirs(ctx context.Context, dirs []string) (RuleFil
 	}
 
 	if len(pending) == 0 {
+		result.Total = s.countRules(ctx, len(existing))
 		if result.Message == "" {
-			result.Message = "规则文件与数据库已一致，无需新增"
+			result.Message = buildSyncMessage(result)
 		}
 		return result, nil
 	}
@@ -185,11 +207,50 @@ func (s *RuleFileSync) syncFromDirs(ctx context.Context, dirs []string) (RuleFil
 		return result, ErrInternal.Wrap(err, "写入新增规则失败")
 	}
 	result.Added = len(newRules)
-	result.Message = "已按并集补齐缺失规则（原有规则保持不动）"
+	result.Total = s.countRules(ctx, len(existing)+len(newRules))
+	result.Message = buildSyncMessage(result)
 	return result, nil
 }
 
 // ruleKey 生成规则的唯一键（类型 + 内容）。
 func ruleKey(ruleType, ruleItem string) string {
 	return strings.ToLower(strings.TrimSpace(ruleType)) + "\x00" + strings.TrimSpace(ruleItem)
+}
+
+// countRules 返回库内规则总数；查询失败时退回按内存推算的值，保证提示可用。
+func (s *RuleFileSync) countRules(ctx context.Context, fallback int) int64 {
+	total, err := s.Repo.Count(ctx)
+	if err != nil || total < 0 {
+		return int64(fallback)
+	}
+	return total
+}
+
+// buildSyncMessage 生成口径清晰的结果说明：
+// 文件里有多少条（去重后）、本次新增多少、库里已有多少、库内现在共多少。
+func buildSyncMessage(result RuleFileSyncResult) string {
+	var b strings.Builder
+	b.WriteString("文件 ")
+	b.WriteString(strconv.Itoa(result.Files))
+	b.WriteString(" 个，去重后 ")
+	b.WriteString(strconv.Itoa(result.InFiles))
+	b.WriteString(" 条：新增 ")
+	b.WriteString(strconv.Itoa(result.Added))
+	b.WriteString(" 条，已存在 ")
+	b.WriteString(strconv.Itoa(result.Kept))
+	b.WriteString(" 条")
+	if result.Duplicates > 0 {
+		b.WriteString("，重复跳过 ")
+		b.WriteString(strconv.Itoa(result.Duplicates))
+		b.WriteString(" 条")
+	}
+	if result.Skipped > 0 {
+		b.WriteString("，无效 ")
+		b.WriteString(strconv.Itoa(result.Skipped))
+		b.WriteString(" 条")
+	}
+	b.WriteString("；库内现有 ")
+	b.WriteString(strconv.FormatInt(result.Total, 10))
+	b.WriteString(" 条规则")
+	return b.String()
 }
