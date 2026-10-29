@@ -108,6 +108,10 @@ func (c *Consumer) Run(ctx context.Context) {
 	c.setEnabled(true)
 	defer c.setEnabled(false)
 
+	// 启动时先探一次连通性：把「没开 / 连不上 / 口令错」这类原因第一时间讲清楚，
+	// 否则表现就是「Redis 里日志一直不被消费」，很难定位。
+	c.probeRedis()
+
 	backoff := time.Second
 	for {
 		if ctx.Err() != nil {
@@ -141,6 +145,30 @@ func (c *Consumer) Run(ctx context.Context) {
 		c.setConnected(false)
 		_ = client.Close()
 	}
+}
+
+// probeRedis 启动自检：连接并 PING 源队列所在的 Redis，把结果写进日志。
+func (c *Consumer) probeRedis() {
+	client, err := redis.Dial(c.Opts.Redis)
+	if err != nil {
+		c.setError(err)
+		c.logf("[error] 日志入库消费者无法连接 Redis（%s db=%d）：%v；队列 %s 里的日志不会被消费",
+			c.Opts.Redis.Addr, c.Opts.Redis.DB, err, c.Opts.Source)
+		return
+	}
+	defer func() { _ = client.Close() }()
+
+	if err := client.Ping(); err != nil {
+		c.setError(err)
+		c.logf("[error] 日志入库消费者 Redis PING 失败（%s db=%d）：%v；口令或权限可能不对，队列 %s 里的日志不会被消费",
+			c.Opts.Redis.Addr, c.Opts.Redis.DB, err, c.Opts.Source)
+		return
+	}
+
+	c.setConnected(true)
+	c.refreshLengths(client)
+	c.logf("[info] 日志入库消费者已就绪：Redis %s db=%d，源队列 %s（当前积压 %d 条），处理中队列 %s，每批 %d 条",
+		c.Opts.Redis.Addr, c.Opts.Redis.DB, c.Opts.Source, c.queueLen, c.Opts.Processing, c.Opts.Batch)
 }
 
 // consumeOnce 取一批并入库一次。

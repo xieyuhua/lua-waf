@@ -94,6 +94,15 @@
   接口 `GET/POST/PUT/DELETE /api/ratelimit`、`PUT /api/ratelimit/{id}/enabled`、`POST /api/ratelimit/sync`；
   校验覆盖：正则合法性、维度名必填、阈值 1~1000000、窗口 1~86400、动作枚举。
 
+### 改进（消费链路可诊断性）
+
+- `[log] INGEST_ENABLED` 默认改为 `on`：redis 模式下 lua 只写队列，没人消费就永远不入库。
+- 消费者启动时先 PING 一次并打印结论：
+  成功 → `日志入库消费者已就绪：Redis <addr> db=<n>，源队列 waf:logs（当前积压 N 条）…`；
+  失败 → `[error] 日志入库消费者无法连接 Redis… / Redis PING 失败…（口令或权限可能不对）`，
+  直接指出「队列里的日志不会被消费」，不再静默空转。
+- docs/OPS.md 新增 4.3「Redis 里的日志一直没被消费」五步排查（开关 / 连通性 / 口令库号 / 队列键 / 实时指标）。
+
 ### 改进（WAF 配置选项卡合并）
 
 - 「基础」「频率与请求体」「自动封禁」「目录」四个选项卡合并为 **基础（15 项）**；

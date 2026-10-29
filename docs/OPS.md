@@ -149,7 +149,24 @@ Redis 建议：开启 AOF（`appendonly yes`），内存策略设为 `noeviction
 `grep '日志输出模式' /www/server/nginx/logs/error.log` 就能确认**nginx 实际读到的模式**——
 如果这里显示 `file`，说明 nginx 加载的 config.lua 不是后台改的那一份（或被旧文件覆盖）。
 
-### 4.3 消费者没生效的排查
+### 4.3 「Redis 里的日志一直没被消费」怎么查
+
+按顺序核对（启动日志里会直接打印结论）：
+
+1. **消费者是否开启**：`conf/app.ini` → `[log] INGEST_ENABLED = on`。
+   为 `off` 时启动日志是「日志入库消费者未启用」，此时 lua 只写队列、没有任何人消费。
+2. **Redis 连得上吗**：开启后启动会打印
+   `[info] 日志入库消费者已就绪：Redis 127.0.0.1:6379 db=0，源队列 waf:logs（当前积压 N 条）`；
+   若打印 `[error] 日志入库消费者无法连接 Redis …` 或 `Redis PING 失败 …`，按提示改地址/口令。
+3. **口令与库号是否与 lua 一致**：`[log] REDIS_PASSWORD / REDIS_DB` 必须等于
+   `config.lua` 的 `config_redis_password / config_redis_db`（不一致时 PING 会报 WRONGPASS 或 NOAUTH）。
+4. **队列键是否一致**：`[log] REDIS_LIST_KEY` 必须等于 `config.lua` 的 `config_redis_list_key`
+   （默认都是 `waf:logs`）——不一致时消费者在盯着一个空队列，而日志进了另一个。
+5. **看实时指标**：后台「安全概览 → 日志入库队列」或 `GET /api/system/ingest`，
+   `queue_length` 长期不降、`consumed/written` 不增长即为异常；
+   `last_error` 会给出最近一次失败原因，`processing_length` 大于 0 说明有一批卡在处理中（重启会自动回收）。
+
+### 4.4 消费者没生效的排查
 
 ```bash
 # 1) 看启动日志
