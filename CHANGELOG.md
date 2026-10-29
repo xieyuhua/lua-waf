@@ -94,6 +94,16 @@
   接口 `GET/POST/PUT/DELETE /api/ratelimit`、`PUT /api/ratelimit/{id}/enabled`、`POST /api/ratelimit/sync`；
   校验覆盖：正则合法性、维度名必填、阈值 1~1000000、窗口 1~86400、动作枚举。
 
+### 修复（所有请求被误判为「畸形请求」）
+
+- 根因：`malformed.lua` 用 `ngx.req.get_headers(0, true)` 取头，`raw=true` 时 **头名不会被转小写**
+  （实际是 `Host`、`Content-Length`…），而后续用 `headers["host"]`、`headers["content-length"]` 索引，
+  于是恒为 nil → 每条请求都命中「缺失Host头」→ 全部记录为畸形请求并被拦截。
+- 修复：新增 `normalize_headers()` 把原始头表统一成小写键名；`host_check` 在取不到头时回退
+  `ngx.var.http_host / ngx.var.host` 兜底。
+- 顺带修复重复 `Content-Length` 的误判：原来把 `{"5","5"}` 拼成 `"5,5"` 后按整数校验失败，
+  现在逐个校验（取值一致的重复头是合法的）。
+
 ### 改进（消费链路可诊断性）
 
 - `[log] INGEST_ENABLED` 默认改为 `on`：redis 模式下 lua 只写队列，没人消费就永远不入库。

@@ -45,6 +45,19 @@ local function to_text(value)
     return tostring(value)
 end
 
+-- 把 header 表统一成小写键名（保留重复头的数组形式）
+local function normalize_headers(raw)
+    local headers = {}
+    if type(raw) ~= "table" then
+        return headers
+    end
+
+    for key, value in pairs(raw) do
+        headers[string.lower(key)] = value
+    end
+    return headers
+end
+
 -- Transfer-Encoding / Content-Length 冲突检查
 function _M.header_conflict_check(headers)
     local transfer_encoding = headers["transfer-encoding"]
@@ -68,10 +81,19 @@ function _M.header_conflict_check(headers)
         end
     end
 
-    -- 3. Content-Length 必须为正整数
-    local content_length_text = to_text(content_length)
-    if content_length_text ~= "" and not ngx.re.find(content_length_text, "^\\d+$", "jo") then
-        return _M.report("畸形请求", "Content-Length取值非法: " .. content_length_text, "http.malformed.cl")
+    -- 3. Content-Length 必须为正整数（重复头时逐个校验，取值一致的重复头是合法的）
+    if type(content_length) == "table" then
+        for _, value in ipairs(content_length) do
+            local trimmed = string.gsub(tostring(value), "%s", "")
+            if trimmed ~= "" and not ngx.re.find(trimmed, "^\\d+$", "jo") then
+                return _M.report("畸形请求", "Content-Length取值非法: " .. trimmed, "http.malformed.cl")
+            end
+        end
+    else
+        local content_length_text = to_text(content_length)
+        if content_length_text ~= "" and not ngx.re.find(content_length_text, "^\\d+$", "jo") then
+            return _M.report("畸形请求", "Content-Length取值非法: " .. content_length_text, "http.malformed.cl")
+        end
     end
 
     -- 4. Transfer-Encoding 仅允许 chunked
@@ -143,6 +165,10 @@ end
 function _M.host_check(headers)
     local host = headers["host"]
     if host == nil or host == "" then
+        -- 兜底：某些阶段 get_headers 取不到时，用 nginx 变量判断，避免误杀正常请求
+        host = ngx.var.http_host or ngx.var.host
+    end
+    if host == nil or host == "" then
         return _M.report("畸形请求", "缺失Host头", "http.malformed.host")
     end
 
@@ -160,8 +186,11 @@ function _M.check()
         return false
     end
 
-    -- 第二个参数为 true 时保留同名头的原始取值（便于识别重复头）
-    local headers = ngx.req.get_headers(0, true)
+    -- 第二个参数为 true 时保留同名头的原始取值（便于识别重复头），
+    -- 但注意：raw=true 时**头名不会被转小写**（可能是 Host / Content-Length），
+    -- 所以这里必须自己建一份小写键名的表，否则 headers["host"] 恒为 nil，
+    -- 会把所有请求都判成「缺失Host头」—— 曾经就踩过这个坑。
+    local headers = normalize_headers(ngx.req.get_headers(0, true))
 
     if _M.request_line_check() then return true end
     if _M.header_conflict_check(headers) then return true end
