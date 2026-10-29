@@ -1,87 +1,112 @@
 # 架构说明
 
-## 1. 总览
+## 1. 总体结构
 
 ```
-┌──────────────────────────────┐        ┌───────────────────────────────┐
-│  openresty / nginx (lua-waf) │        │  wafadmin (Go)                │
-│                              │        │                               │
-│  请求 → waf.check()          │        │  Vue 前端 (go:embed)          │
-│   ├─ 12 步检测               │        │  transport/httpapi  ← REST    │
-│   ├─ 命中 → 拦截 + 写日志    │        │  service            ← 业务    │
-│   └─ 命中 → 可选自动封禁     │        │  repository         ← 存储    │
-│                              │        │                               │
-│  日志：file / mysql / redis ─┼───────►│  ingest（Redis 消费者）       │
-└──────────────────────────────┘        └───────────────┬───────────────┘
-                                                        │
-                                     MySQL（日志/规则/站点/账号/配置）
+                    ┌───────────────────────────────┐
+   浏览器  ─────────►│ openresty (lua-waf)           │
+                    │  判定 + 拦截 + 写日志          │
+                    └───────────┬───────────────────┘
+                                │ RPUSH waf:logs
+                                ▼
+                    ┌───────────────────────────────┐
+                    │ Redis（队列，削峰/跨机汇聚）    │
+                    └───────────┬───────────────────┘
+                                │ BRPOPLPUSH → 批量 INSERT
+                                ▼
+   ┌────────────────────────────────────────────────────────┐
+   │ wafadmin（Go）：transport → service → repository → model│
+   │   REST API + Vue 3 前端（embed 进二进制）               │
+   └───────────────┬────────────────────────────────────────┘
+                   │ xorm
+                   ▼
+              MySQL（waf 库：waf_log / rules / site / …）
 ```
 
-职责边界：
+lua 侧只做「判定 + 输出」，**不直连 MySQL**：数据库抖动不会拖慢 nginx，落库可观测（队列长度、失败数、最近入库时间）。
 
-- **lua-waf**：只做“判定与拦截”，不关心展示。规则文件与 `config.lua` 由后台下发，也可运维直接维护。
-- **wafadmin**：管理面。读写配置与规则、展示统计、消费 Redis 队列写库；不做任何请求过滤。
+## 2. Go 后端分层
 
-## 2. 分层结构
-
-| 层 | 包 | 职责 | 约束 |
+| 层 | 目录 | 职责 | 约束 |
 |---|---|---|---|
-| 组合根 | `internal/app` | 装配仓储、服务、路由、日志消费者 | 唯一知道“用 MySQL 还是内存”的地方 |
-| 传输层 | `internal/transport/httpapi` | 路由、参数绑定、状态码、中间件（会话 / CSRF / 限流 / panic 恢复 / 访问日志） | 不做业务判断，错误统一转 `service.Fault` |
-| 业务层 | `internal/service` | 校验、编排、事务边界、缓存 | 通过 `repository` 接口访问存储，不直接写 SQL |
-| 仓储层 | `internal/repository` | 接口 + `mysql`、`memory` 两套实现 | 两套实现必须语义一致（便于 demo 与单测） |
-| 领域模型 | `internal/model` | 结构体与规则类型目录 | 无依赖 |
-| 基础设施 | `pkg/*` | captcha、crypto、geo、ratelimit、redis(RESP 客户端)、response、session、sqlwatch | 不依赖 internal |
-| 集成 | `internal/nginx`、`internal/ingest` | 渲染 vhost / rule 文件并 reload；消费 Redis 队列 | 副作用集中在此 |
+| transport | `internal/transport/httpapi` | 路由、鉴权/CSRF 中间件、请求解析、统一响应 | 不写业务规则，只做参数与响应转换 |
+| service | `internal/service` | 业务规则、校验、编排、下发文件、AI 调用 | 只依赖 repository 接口与 pkg，不直接 SQL |
+| repository | `internal/repository/{mysql,memory}` | 存储实现（MySQL via xorm / 内存实现用于 demo 与测试） | 双实现必须行为一致，公共行为有回归测试 |
+| model | `internal/model` | 数据结构与 xorm/JSON 标签 | 无业务逻辑 |
+| app | `internal/app` | 组合根：按运行模式装配 store/service/handler | 唯一知道"用哪个实现"的地方 |
 
-依赖方向单一：`transport → service → repository → model`，`pkg` 被任意层使用但自身不反向依赖。
+外部依赖收敛在 `pkg/`：`response`（统一响应与错误码）、`redis`（自研 RESP 客户端）、
+`crypto`（双 md5 口令）、`geo`（IP 归属地）、`sqlwatch`（慢 SQL 观察器）。
 
-## 3. 请求链路（以一个写接口为例）
+## 3. 运行模式
+
+| 模式 | 存储 | nginx 侧行为 | 用途 |
+|---|---|---|---|
+| `prod`（默认） | MySQL | 真实写 vhost/规则文件并 reload | 生产 |
+| `demo` | 内存 + 样例数据 | DryRun，不落盘 | 本地体验、演示 |
+
+切换：`WAF_RUN_MODE=demo` 或 `[server] RUN_MODE`。
+
+## 4. 关键数据流
+
+### 4.1 请求拦截（lua）
+
+`access.lua → waf.check()` 顺序判定（详见 `docs/RULES.md`）：
 
 ```
-POST /api/lua/config
-  → AccessLogger → Recoverer → SecurityHeaders → CSRF → Authenticator.Private
-  → LuaConfigHandler.save
-      → LuaConfigService.Update
-          → 校验（luaconfig_parse.normalizeLuaValue）
-          → 按行回写（luaconfig_parse.rewriteLuaValues）
-          → 备份 + 原子写文件（luaconfig.writeFile）
-      → 返回最新视图（脱敏）
-  → response.Writer 输出 { code:0, data:... }
+白名单IP → 封禁 → 畸形请求 → 黑名单IP → 请求头 → UA → 白名单URL
+→ URL → 限频规则 → CC/IP频率 → Cookie → 参数 → POST
 ```
 
-错误统一模型：`service.Fault{Kind, Message}` → `code`（1001 参数非法 / 1002 未登录 / 1003 无权限 / 1004 不存在 / 1005 冲突 / 1500 内部错误），
-对外只序列化 `Message`（内部原因写在日志里，不泄漏给前端）。
+命中后：写日志（`log_sink`）→ 按 `config_waf_model` 输出拦截页/跳转/幻影降级。
 
-## 4. 数据模型（MySQL）
+### 4.2 日志入库
 
-| 表 | 说明 |
-|---|---|
-| `waf_log` | 攻击日志：`client_ip`、`local_time`、`server_name`、`user_agent`、`attack_type`、`req_url`、`req_data`、`area`、`rule_tag` |
-| `rules` | WAF 规则：`rule_type`、`rule_item`、`enabled`（默认 1） |
-| `site` | 反代站点：域名、上游、证书、状态 |
-| `user` | 管理员：账号、口令摘要、状态 |
-| `setting` | 键值配置（如 `ai.config`） |
-| `slow_sql` | 后台自身慢 SQL 采样 |
+```
+log_sink.write()
+  ├─ mode=file  → 按天追加写本地文件
+  └─ mode=redis → RPUSH config_redis_list_key
+                  失败：打 WARN（5 秒限频）→ 回落写文件 → 熔断 5 秒
+wafadmin/ingest
+  ├─ BRPOPLPUSH 源队列 → 处理中队列（at-least-once）
+  ├─ 批量 INSERT waf_log（失败则留在处理中队列下轮重试）
+  ├─ 成功后 LREM 处理中队列
+  └─ 启动时把上次残留的处理中记录回收回源队列
+```
 
-建表策略：表不存在则 `Sync` 建表；表已存在时**只补缺失列**（`ADD_MISSING_COLUMNS`），不修改、不删除，避免线上事故。
+### 4.3 规则下发
 
-## 5. 关键设计决策
+| 方向 | 触发 | 产物 |
+|---|---|---|
+| 后台 → nginx | 保存规则 / 手动同步 / 站点同步 | `rules/*.rule`（JSON 数组）、vhost 配置，随后 `nginx -t && nginx -s reload` |
+| 文件 → 数据库 | 「从规则文件同步」 | 取并集：文件里有、库里没有的新增；库里已有的保留不动 |
+| 后台 → nginx | 保存限频规则 | `rules/ratelimit.rule`（`{id,pattern,match,key,limit,window,action}`） |
+
+### 4.4 配置在线编辑
+
+`WAF 配置`页读写 `[waf] LUA_CONFIG` 指向的 `config.lua`：
+按行替换值（保留注释/顺序/缩进）→ 备份 `.bak` → 临时文件 + rename 原子替换 → 可选 `nginx -t && reload`。
+保存前可用「测试连接」（Redis PING）与「生效自检」（文件是否被 nginx 真正加载、日志链路是否通）。
+
+## 5. 关键取舍
 
 | 决策 | 原因 |
 |---|---|
-| 规则文件与数据库**取并集**（只增不删） | 规则可能由运维直接在服务器维护，后台不能覆盖；同时让后台能纳入新规则 |
-| `config.lua` 采用**按行改值**而非重排 | 保留注释、顺序、缩进；出问题可用 `.bak` 回滚 |
-| 日志入库提供三种模式 | 小流量用 file，简单场景直连 mysql，高并发用 redis + 后台消费（at-least-once） |
-| 规则匹配大小写不敏感 + 输入归一化 | 大小写/编码是最常见的绕过手法，统一下沉比逐条规则写死更可靠 |
-| AI 结果服务端缓存 | 分析单次常需 30~100 秒，跨设备/刷新要能复用，避免重复计费 |
-| 前端内嵌进二进制 | 单文件交付，升级只需替换可执行文件 |
-| `memory` 仓储与 `mysql` 同接口 | demo 模式、单测、以及“读不到库时的降级展示”都靠它 |
+| lua 不直连 MySQL | 削峰、避免数据库抖动影响 nginx、可观测；lua 侧少一个依赖 |
+| Redis 队列而非本地文件采集 | 多机汇聚、天然削峰、消费端可水平扩展 |
+| 处理中队列 + 回收 | at-least-once：宁可重复（可去重）也不丢日志 |
+| 规则文件与数据库"取并集" | 运维可能直接改服务器文件，人工调整也可能在后台，双向都不能被覆盖 |
+| 只增不改的表结构策略 | 避免 xorm `Sync` 在线上表做危险 ALTER；只在表缺失时创建、缺列时补列 |
+| memory 仓储 | demo 无依赖运行 + 单测不需要外部服务 |
+| 前端 embed 进二进制 | 单文件部署，避免静态资源路径与跨域问题 |
 
-## 6. 并发与可靠性
+## 6. 前端结构
 
-- **Redis 消费者**：`BRPOPLPUSH` 原子取出到 processing 队列 → 批量写 MySQL → `LREM` 确认；
-  启动时把 processing 里的残留回灌源队列（崩溃恢复），实现 at-least-once。
-- **配置写入**：`LuaConfigService` 与 `SystemConfigService` 都加互斥锁 + 临时文件原子替换，避免并发保存互相覆盖。
-- **看板指标**：`/api/system/ingest` 由消费者实时上报，前端 10 秒轮询绘制队列深度。
-- **慢 SQL 采集**：`pkg/sqlwatch` 包装 xorm 执行，超过 `SLOW_SQL_MS` 记库并在后台展示、可交 AI 分析。
+| 目录 | 说明 |
+|---|---|
+| `web/src/views/` | 页面（概览/地图/日志/规则/限频/配置/站点/慢SQL/设置） |
+| `web/src/components/` | 布局、侧边栏、配置面板、AI 对话框等 |
+| `web/src/api/` | 各模块接口封装（统一 `client.js`，自动带 CSRF） |
+| `web/src/stores/` | 轻量 reactive 单例（规则类型、主题等） |
+
+主题通过 CSS 变量 + `html.dark` 切换；响应式使用 `utils/responsive.js` 与栅格自适应。

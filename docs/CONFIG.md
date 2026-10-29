@@ -1,157 +1,122 @@
 # 配置说明
 
-本项目有两层配置，**互不重叠**：
+配置分两处：
 
-| 层 | 文件 | 谁在跑 | 用途 |
-|---|---|---|---|
-| 管理台配置 | `conf/app.ini` | Go 后台（`wafadmin`） | 端口、数据库、路径、会话、日志消费 |
-| WAF 配置 | `lua-waf/config.lua` | openresty（lua） | 检测开关、阈值、日志模式、拦截页模板 |
-
-两层配置都能在后台在线修改：
-
-- `conf/app.ini` → 系统设置 → 运行配置（保存后热更新，标注「需重启」的项除外）
-- `lua-waf/config.lua` → 防护配置 → WAF 配置（保存后点「仅 reload」或「保存并生效」让 nginx 重载）
+| 文件 | 作用 | 谁改 |
+|---|---|---|
+| `conf/app.ini` | 后台进程（Go）自身配置：数据库、路径、Redis 消费、安全 | 运维改，重启生效（部分支持后台热更新） |
+| `lua-waf/config.lua` | openresty 侧 WAF 行为（37 项） | 后台「WAF 配置」在线改，reload 生效 |
 
 ---
 
 ## 1. `conf/app.ini`
 
-### 1.1 顶层
+所有键都支持环境变量覆盖（见 §1.8）。分节如下。
+
+### 1.1 `[server]`
 
 | 键 | 默认 | 说明 |
 |---|---|---|
-| `RUN_MODE` | `prod` | `prod` / `dev` / `demo`。`demo` 用内存仓储 + 演示数据，下发配置只 DryRun |
+| `RUN_MODE` | `prod` | `prod` / `demo`（demo=内存仓储 + 样例数据 + 不写 nginx） |
+| `HTTP_PORT` | `5002` | 监听端口 |
+| `API_KEY` | `change-me-please` | 多节点同步配置时的共享密钥，所有节点必须一致 |
+| `NGINX_BIN` | `/www/server/nginx/sbin/nginx` | nginx 可执行文件路径（用于 `-t` / reload） |
+| `NGINX_VHOSTS` | `/www/server/panel/vhost/nginx/` | vhost 配置输出目录 |
+| `SSL_CERT_DIR` | `/www/server/panel/vhost/cert` | 站点证书目录（`<域名>/fullchain.pem`、`privkey.pem`） |
+| `API_SERVERS` | `127.0.0.1` | 集群内其它 WAF 节点（逗号分隔） |
 
-### 1.2 `[server]`
+### 1.2 `[database]`
+
+| 键 | 说明 |
+|---|---|
+| `HOST` / `PORT` / `USER` / `PASSWORD` / `NAME` | MySQL 连接信息（仅 MySQL） |
+| `AUTO_MIGRATE` | `true`：表缺失时自动创建（默认） |
+| `ADD_MISSING_COLUMNS` | `true`：已存在的表只补缺失列，不做破坏性变更 |
+| `SHOW_SQL` | 是否打印 SQL（也可在后台「系统设置」热切换） |
+
+### 1.3 `[waf]`
+
+| 键 | 说明 |
+|---|---|
+| `LUA_CONFIG` | **nginx 实际加载的 config.lua 绝对路径**（如 `/www/server/nginx/x-waf/config.lua`）。配成相对路径会改到仓库副本，reload 也不生效 |
+| `MAP_TARGET` | 攻击地图的防护目标位置（如 `中国-北京`） |
+| `RULE_PATH` | lua 侧规则目录（下发目标，需与 nginx 一致） |
+| `RULE_IMPORT_DIR` | 「从规则文件同步」的候选目录（后台与 nginx 不同机时用本机副本） |
+| `LOG_DIR` | file 模式的日志目录（仅用于展示/校验） |
+
+### 1.4 `[log]`
 
 | 键 | 默认 | 说明 |
 |---|---|---|
-| `HTTP_PORT` | `5002` | 管理台监听端口（**需重启**生效） |
-| `NGINX_BIN` | `/www/server/nginx/sbin/nginx` | nginx 可执行文件路径，用于 `-t` 与 `-s reload` |
-| `NGINX_VHOSTS` | `/www/server/panel/vhost/nginx/` | 反代站点 vhost 配置目录 |
-| `API_SERVERS` | `127.0.0.1` | 多节点部署时其它管理台节点（逗号分隔） |
-
-### 1.3 `[database]`
-
-| 键 | 默认 | 说明 |
-|---|---|---|
-| `USER` / `PASSWD` | `waf` / `waf` | 数据库账号 |
-| `HOST` / `PORT` | `127.0.0.1` / `3306` | 数据库地址 |
-| `NAME` | `waf` | 库名 |
-| `AUTO_MIGRATE` | `true` | 表不存在时自动建表 |
-| `ADD_MISSING_COLUMNS` | `true` | 表已存在时**只补缺失列**（不修改、不删除），老库升级用 |
-| `SHOW_SQL` | `false` | 是否打印执行的 SQL（排障用，量大时关闭） |
-
-> `rules` 表的 `enabled` 列就是靠 `ADD_MISSING_COLUMNS` 自动补齐的，老数据默认 `1`（启用）。
-
-### 1.4 `[waf]`
-
-| 键 | 默认 | 说明 |
-|---|---|---|
-| `LUA_CONFIG` | `/www/server/nginx/x-waf/config.lua` | WAF 配置文件路径（WAF 配置页读写它） |
-| `RULE_PATH` | `/www/server/nginx/x-waf/rules/` | 规则目录：「下发全部规则」把规则写到这里 |
-| `RULE_IMPORT_DIR` | `lua-waf/rules` | 「从规则文件同步」的候选目录（后台与 nginx 不同机时用） |
-| `LOG_DIR` | `/www/wwwlogs/waf` | file 模式下的 WAF 日志目录 |
-| `MAP_TARGET` | `中国-北京` | 攻击地图的「防护目标」位置 |
-
-> 从规则文件同步会同时扫描 `RULE_PATH` 与 `RULE_IMPORT_DIR`，**合并**后与数据库取并集：
-> 文件里有、库里没有的新增；库里已有的保持不动（不覆盖、不删除）。
+| `INGEST_ENABLED` | `on` | **redis 日志模式必须为 on**，否则没人消费队列 |
+| `REDIS_ADDR` | `127.0.0.1:6379` | Redis 地址 |
+| `REDIS_PASSWORD` | 空 | 口令，必须与 `config.lua` 的 `config_redis_password` 一致 |
+| `REDIS_DB` | `0` | 库号 |
+| `REDIS_LIST_KEY` | `waf:logs` | 队列键，必须与 `config_redis_list_key` 一致 |
+| `INGEST_BATCH` | `200` | 单批入库条数 |
+| `INGEST_BLOCK_MS` | `2000` | BRPOPLPUSH 阻塞毫秒数 |
 
 ### 1.5 `[security]`
 
-| 键 | 默认 | 说明 |
-|---|---|---|
-| `SESSION_SECRET` | 空 | 会话签名密钥。**为空时每次启动随机生成，重启即掉登录**，生产务必填固定值 |
-| `SESSION_TTL` | `12h` | 会话有效期 |
-| `SESSION_SECURE` | `false` | 走 HTTPS 时设为 `true`（Cookie 加 Secure） |
-| `CAPTCHA_TTL` | `5m` | 登录验证码有效期 |
-| `API_KEY` | — | 多节点同步密钥，各节点必须一致 |
+| 键 | 说明 |
+|---|---|
+| `SESSION_SECRET` | 会话签名密钥。**必须设置**，留空则每次重启随机生成（登录态全部失效） |
+| `SESSION_TTL` | 会话有效期（默认 12h） |
+| `SESSION_SECURE` | HTTPS 访问时设为 `true`（Cookie 加 Secure） |
+| `CAPTCHA_TTL` | 验证码有效期 |
 
-### 1.6 `[log]` — 日志入库消费者（Redis 模式）
+### 1.6 `[pager]`
 
-| 键 | 默认 | 说明 |
-|---|---|---|
-| `INGEST_ENABLED` | `off` | 是否启用后台消费 Redis 队列 |
-| `REDIS_ADDR` | `127.0.0.1:6379` | Redis 地址 |
-| `REDIS_PASSWORD` | 空 | Redis 口令 |
-| `REDIS_DB` | `0` | 库号 |
-| `REDIS_LIST_KEY` | `waf:logs` | 队列键（`lua-waf/config.lua` 的 `config_redis_list_key` 必须一致） |
-| `INGEST_BATCH` | `200` | 单批取出条数 |
-| `INGEST_BLOCK_MS` | `2000` | `BRPOPLPUSH` 阻塞毫秒数 |
+| 键 | 说明 |
+|---|---|
+| `PAGEMax` | 单页最大条数（默认 10，接口 size 会被夹到该值） |
 
 ### 1.7 `[monitor]`
 
-| 键 | 默认 | 说明 |
-|---|---|---|
-| `SLOW_SQL_MS` | `200` | 后台自身 SQL 超过该耗时即记入「慢 SQL 统计」 |
-
-### 1.8 环境变量（优先级高于 ini）
-
-| 变量 | 对应配置 |
+| 键 | 说明 |
 |---|---|
-| `WAF_RUN_MODE` | `RUN_MODE` |
+| `SLOW_SQL_MS` | 慢 SQL 阈值（毫秒），超过则被观察器记录 |
+
+### 1.8 环境变量覆盖
+
+| 环境变量 | 覆盖 |
+|---|---|
+| `WAF_RUN_MODE` | `[server] RUN_MODE` |
 | `WAF_HTTP_PORT` | `[server] HTTP_PORT` |
-| `WAF_CONFIG` | 配置文件路径（等价 `-config`） |
-| `WAF_DB_HOST` / `WAF_DB_PORT` / `WAF_DB_USER` / `WAF_DB_PASSWD` / `WAF_DB_NAME` | `[database]` |
-| `WAF_MAP_TARGET` | `[waf] MAP_TARGET` |
-| `WAF_LUA_CONFIG` | `[waf] LUA_CONFIG` |
-| `WAF_RULE_IMPORT_DIR` | `[waf] RULE_IMPORT_DIR` |
-| `WAF_LOG_INGEST` | `[log] INGEST_ENABLED`（`on` / `off`） |
-| `WAF_REDIS_ADDR` / `WAF_REDIS_PASSWORD` | `[log]` |
-| `WAF_SESSION_SECRET` | `[security] SESSION_SECRET`（脚本化测试用） |
-
-命令行子命令：
-
-```bash
-./wafadmin version                 # 版本
-./wafadmin list-users              # 列出管理员
-./wafadmin reset-password -u admin # 重置口令
-./wafadmin help
-```
+| `WAF_SESSION_SECRET` | `[security] SESSION_SECRET` |
+| `WAF_LUA_CONFIG` | `[waf] LUA_CONFIG`（本地联调常用 `lua-waf/config.lua`） |
+| `WAF_RULE_PATH` / `WAF_RULE_IMPORT_DIR` | 规则目录 |
+| `WAF_LOG_DIR` | `[waf] LOG_DIR` |
+| `WAF_LOG_INGEST` | `[log] INGEST_ENABLED` |
+| `WAF_REDIS_ADDR` / `WAF_REDIS_PASSWORD` / `WAF_REDIS_DB` / `WAF_REDIS_LIST_KEY` | `[log]` 对应项 |
+| `WAF_DB_HOST` / `WAF_DB_PORT` / … | `[database]` 对应项 |
 
 ---
 
-## 2. `lua-waf/config.lua`（WAF 配置，共 37 项）
+## 2. `lua-waf/config.lua`（37 项，后台分 4 个选项卡）
 
-后台「防护配置 → WAF 配置」按 4 个模块选项卡展示（基础 / 拦截页面 / 检测开关 / 日志输出），这里按同样顺序列出。
-**lua 侧不再直连 MySQL**：`config_log_mode` 只有 `file` / `redis` 两种，日志落库统一由后台 `wafadmin` 消费 Redis 完成。
+后台「防护配置 → WAF 配置」按模块选项卡展示；字段顺序与文件一致，
+保存时**只按行替换值**（保留注释、顺序与缩进），写前备份 `.bak`。
 
 ### 2.1 基础（15）
 
-> 合并了原有「基础」「频率与请求体」「自动封禁」「目录」四个模块。
-
-**总开关与拦截方式**
+> 合并了「总开关/拦截方式」「频率与请求体」「自动封禁」「目录」四组。
 
 | 键 | 说明 |
 |---|---|
-| `config_waf_enable` | 总开关，关闭后所有检测直接放行（含黑名单），仅用于临时排障 |
+| `config_waf_enable` | 总开关；关闭后所有检测直接放行（含黑名单），仅用于临时排障 |
 | `config_waf_model` | 拦截方式：`html` 拦截页 / `redirect` 跳转 / `jinghuashuiyue` 幻影降级 |
 | `config_waf_redirect_url` | redirect 模式的跳转地址 |
 | `config_expire_time` | 封禁时长（秒），0 表示不封禁 |
-
-**频率与请求体**
-
-| 键 | 说明 |
-|---|---|
-| `config_cc_rate` | CC 阈值，格式 `次数/秒`（如 `300/60` = 60 秒内同一 IP+URI 超过 300 次拦截） |
-| `config_ipcc_rate` | IP 阈值，格式 `次数/秒`（如 `120/7200` = 2 小时内同一 IP 超过 120 次拦截） |
-| `config_post_max_size` | 请求体检测上限（字节），超过则只记录不深检 |
-| `config_post_max_parts` | multipart 分段数上限，超过视为畸形请求 |
-
-**自动封禁**
-
-| 键 | 说明 |
-|---|---|
-| `config_auto_ban_check` | 自动封禁开关，命中阈值后把 IP 写入封禁表 |
-| `config_auto_ban_window` | 统计窗口（秒） |
+| `config_cc_rate` | CC 阈值，格式 `次数/秒`（如 `300/60`：60 秒内同一 IP+URI 超 300 次拦截） |
+| `config_ipcc_rate` | IP 阈值，格式 `次数/秒`（如 `120/7200`） |
+| `config_post_max_size` | 请求体检测上限（字节），超过只记录不深检 |
+| `config_post_max_parts` | multipart 分段上限，超过视为畸形 |
+| `config_auto_ban_check` | 自动封禁开关 |
+| `config_auto_ban_window` | 自动封禁统计窗口（秒） |
 | `config_auto_ban_threshold` | 窗口内命中次数阈值 |
-| `config_auto_ban_types` | 参与自动封禁的攻击类型（逗号分隔，`*` 表示全部） |
+| `config_auto_ban_types` | 参与自动封禁的攻击类型（逗号分隔，`*` 为全部） |
 | `config_auto_ban_expire` | 封禁时长（秒） |
-
-**目录**
-
-| 键 | 说明 |
-|---|---|
 | `config_rule_dir` | 规则目录，须与 `[waf] RULE_PATH` 一致 |
 | `config_log_dir` | file 模式日志目录，须与 `[waf] LOG_DIR` 一致 |
 
@@ -159,7 +124,7 @@
 
 | 键 | 说明 |
 |---|---|
-| `config_output_html` | 拦截页 HTML 模板（Lua 长字符串 `[[ ... ]]`），支持 `%s` 占位；**不能包含 `]]`** |
+| `config_output_html` | 拦截页 HTML 模板（Lua 长字符串 `[[ … ]]`），支持 `%s` 占位；**不能包含 `]]`** |
 
 ### 2.3 检测开关（15）
 
@@ -183,39 +148,39 @@
 
 ### 2.4 日志输出（6）
 
-> 合并了原有「日志输出」与「Redis 队列」两个模块：选 `redis` 模式时，下面的 Redis 参数就是日志队列。
+> 合并了「日志输出」与「Redis 队列」两组：选 `redis` 时下面的 Redis 参数即日志队列。
 
 | 键 | 说明 |
 |---|---|
-| `config_log_mode` | `file` = 写本地日志文件；`redis` = 写 Redis 队列（推荐），由后台消费入库 |
+| `config_log_mode` | `file` 写本地文件；`redis` 写 Redis 队列，由后台消费入库（推荐） |
 | `config_redis_host` / `config_redis_port` | Redis 地址 |
-| `config_redis_password` | 口令（接口层脱敏） |
+| `config_redis_password` | 口令（接口返回脱敏，提交脱敏值表示不修改） |
 | `config_redis_db` | 库号 |
-| `config_redis_list_key` | 队列键名，须与后台 `[log] REDIS_LIST_KEY` 一致 |
-> 已移除的配置：`config_mysql_*`（6 项）、`config_redis_consume`（消费方改由后台固定承担）、
-> `config_log_batch_size` / `config_log_flush_interval` / `config_log_queue_size`（落库参数由后台消费者控制）。
-## 3. 后台「AI 设置」配置项
+| `config_redis_list_key` | 队列键名，须与 `[log] REDIS_LIST_KEY` 一致 |
 
-保存在数据库 `setting` 表（键 `ai.config`），不是 ini 文件：
-
-| 字段 | 说明 |
-|---|---|
-| `base_url` | OpenAI 兼容接口地址，如 `http://host:7863/v1` |
-| `model` | 模型名 |
-| `api_key` | 密钥（接口返回脱敏） |
-| `max_tokens` | 最大输出 tokens；`-1` 表示不传（由模型决定），上限 32768 |
-| `temperature` | 采样温度 |
-| `timeout_seconds` | 请求超时；分析类会强制不低于 180 秒，上限 900 |
-| `cache_minutes` | 分析结果缓存分钟数（默认 10） |
+> 已移除：`config_mysql_*`（lua 不再直连 MySQL）、`config_redis_consume`（消费固定由后台承担）、
+> `config_log_batch_size` / `config_log_flush_interval` / `config_log_queue_size`（批量参数由后台控制）。
 
 ---
 
-## 4. 配置修改的生效方式
+## 3. 限频规则（数据库 + `rules/ratelimit.rule`）
 
-| 改了什么 | 生效方式 |
+后台「防护配置 → 限频规则」维护，保存后自动下发到 `RULE_PATH/ratelimit.rule`。
+
+| 字段 | 取值 | 说明 |
+|---|---|---|
+| URL 匹配 | 前缀 / 正则 | 正则在 lua 侧用 `ngx.re.find(..., "joi")` |
+| 计数维度 | `ip` / `header` / `cookie` / `arg` / `uri` / `site` / `method` / `referer` | 后三种不需要维度名 |
+| 阈值 | `limit` 次 / `window` 秒 | 计数存 `ngx.shared.limit`，TTL=窗口 |
+| 超限动作 | `block` 拦截 / `log` 仅记录 | 观察期建议先 log |
+
+---
+
+## 4. AI 配置（数据库 `setting` 表，后台可编辑）
+
+| 键 | 说明 |
 |---|---|
-| `conf/app.ini` 运行参数 | 保存即热更新；标「需重启」的（如 `HTTP_PORT`）需重启进程 |
-| `lua-waf/config.lua` | WAF 配置页保存后点「仅 reload」或「保存并生效」执行 `nginx -t && nginx -s reload` |
-| `rules/*.rule` 文件 | 同上（需要 reload 才重新加载规则） |
-| 数据库里的规则（后台增删改） | 点「下发全部规则」写回 `*.rule`，再 reload |
-| AI 配置 | 保存即生效（下次调用使用） |
+| `ai.config` | JSON：`base_url`、`api_key`、`model`、`temperature`、`timeout_seconds`、`prompt` |
+| 分析缓存 | 同一条日志/慢 SQL 的分析结果缓存 10 分钟（`/api/ai/results/{logId}` 可回看） |
+
+超时：分析类请求下限 180s、上限 900s，失败自动重试一次；错误会翻译成可读原因。

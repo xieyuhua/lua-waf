@@ -1,155 +1,142 @@
-# X-WAF 云防火墙管理台
+# X-WAF 管理台
 
-> 面向 **openresty / nginx + lua** 的 WAF 管理后台：规则管理、实时看板、攻击地图、防护分析、慢 SQL 审计、AI 研判，全部打包在一个二进制里（Go + 内嵌 Vue 前端）。
+openresty Lua WAF + Go 管理后台（Web 端用 Vue 3 重构）。WAF 只负责**判定与拦截**，
+日志统一写 Redis，由后台进程批量入库，管理台负责规则/配置/日志/统计/AI 分析的可视化运维。
 
-| 关键词 | 说明 |
+- 前台拦截：`lua-waf/`（openresty + LuaJIT）
+- 管理后台：Go（`internal/`）+ Vue 3（`web/`）
+- 数据流：`openresty → Redis(waf:logs) → wafadmin 消费者 → MySQL.waf_log`
+
+## 1. 能力总览
+
+| 模块 | 说明 |
 |---|---|
-| 后端 | Go 1.24，标准库 `net/http`（Go 1.22 路由），分层架构 `transport → service → repository → model` |
-| 前端 | Vue 3 + Vite + Element Plus + ECharts，构建产物通过 `//go:embed` 内嵌进二进制 |
-| 防护侧 | `lua-waf/`（waf.lua / body.lua / util.lua / config.lua / rules/*.rule）运行在 openresty 侧 |
-| 存储 | MySQL（日志、规则、站点、账号、配置），可选 Redis 作为日志队列 |
-| 交付 | 单个 `wafadmin` 可执行文件 + `conf/app.ini` + `lua-waf/` 目录 |
+| 安全概览 | 今日攻击量、攻击类型分布、Top 来源、趋势、检测与拦截顺序（可折叠）、日志入库队列指标 |
+| 攻击地图 | 按来源地区聚合的 2D 地图（今日/近 7 天/全部） |
+| 攻击日志 | 分页筛选（类型/IP/站点/日期）、详情、按标签查命中样本、AI 分析单条日志 |
+| 防护分析 | 规则命中 Top（7 天）+ 命中样本抽屉 |
+| WAF 规则 | 8 类规则集的增删改查、启用/停用、关键词检索、从规则文件同步（并集）、检测顺序说明 |
+| 限频规则 | 按 URL 精细化限频：不同 URL 不同阈值，可按 IP/Header/Cookie/参数/URI/站点/方法/Referer 计数 |
+| WAF 配置 | 在线编辑 `config.lua`（4 个选项卡 / 37 项）、Redis 连通性测试、生效自检 |
+| 站点管理 | 受保护域名与后端配置，一键同步生成 nginx vhost |
+| 慢 SQL 统计 | 慢查询采集、趋势、AI 分析、清理 |
+| 系统设置 | 运行配置（app.ini）、AI 配置、主题切换、账号管理 |
 
----
+## 2. 目录结构
 
-## 1. 功能一览
+```
+lua-waf/                    openresty 侧 WAF（部署到 nginx 的 x-waf 目录）
+  waf.lua                   检测主流程（12 步顺序判定）
+  body.lua                  POST/JSON/multipart/上传检测
+  malformed.lua             畸形请求（请求走私、控制字符、非法 Host…）
+  ratelimit.lua             按 URL 的精细化限频（读取 rules/ratelimit.rule）
+  log_sink.lua              日志出口：file / redis（失败回落 file + 熔断）
+  log_redis.lua             Redis 生产端（RPUSH）
+  config.lua                37 项配置（后台可在线编辑）
+  lib/resty/                内置纯 Lua 依赖（redis / lrucache），无需 opm
+  rules/*.rule              规则文件（JSON 数组，{Id,RuleType,RuleItem}）
+  sql/waf_log.sql           waf_log 建表脚本（后台已能自动建表，仅权限不足时手工执行）
+  nginx.conf                参考配置（lua_package_path / shared dict / init 钩子）
 
-| 菜单 | 能做什么 |
-|---|---|
-| 安全概览 | 今日拦截 / 累计攻击 / 站点 / 规则数；近 15 天趋势、攻击类型分布、日志入库队列指标；顶部可展开「检测与拦截顺序」 |
-| 攻击地图 | 来源地 → 防护目标的攻击连线大屏，默认展示**今日**数据，支持全部时间、主题切换、缩放漫游 |
-| 防护配置 → 站点管理 | 反向代理站点（vhost）增删改、下发 nginx 配置、预览 |
-| 防护配置 → 防护分析 | 规则命中 Top（今天 / 7 天 / 30 天）、命中日志样例、一键停用 / 启用规则 |
-| 防护配置 → WAF 规则 | 按类型维护规则（args / post / cookie / url / ua / header / 黑白名单），逐条启停、从规则文件同步、下发全部规则 |
-| 防护配置 → WAF 配置 | `config.lua` 在线编辑，按模块选项卡（基础 / 拦截页面 / 检测开关 / 频率与请求体 / 自动封禁 / 目录 / 日志输出 / MySQL / Redis），保存后可一键 reload |
-| 防护配置 → 账号管理 | 管理员账号维护、修改口令 |
-| 审计分析 → 攻击日志 | 多条件筛选、详情抽屉、AI 分析、IP 维度统计 |
-| 审计分析 → 慢 SQL 统计 | 慢 SQL 列表、趋势聚合、AI 优化建议 |
-| 系统设置 | 运行配置（app.ini 在线改）、外观设置（主题 / 暗色）、AI 设置（大模型接入）、账号设置 |
-
----
-
-## 2. 快速开始
-
-### 2.1 本地跑起来（演示模式，无需 MySQL / nginx）
-
-```bash
-go build -o wafadmin.exe .
-WAF_RUN_MODE=demo WAF_HTTP_PORT=5003 ./wafadmin.exe
-# 打开 http://127.0.0.1:5003
+internal/                   Go 后端（分层：transport → service → repository → model）
+  transport/httpapi/        路由、中间件、handler
+  service/                  业务逻辑（规则/配置/日志/统计/AI/限频/自检）
+  repository/{mysql,memory} 存储实现（memory 用于 demo 与测试）
+  ingest/                   Redis → MySQL 消费者
+  nginx/                    vhost / 规则文件生成器
+  app/                      依赖装配（组合根）
+pkg/                        通用件（response、redis 客户端、crypto、geo、sqlwatch…）
+web/                        Vue 3 + Vite + Element Plus 前端
+conf/app.ini                运行配置模板
+docs/                       文档
 ```
 
-`demo` 模式使用**内存仓储 + 内置演示数据**，下发 nginx 配置走 `DryRun`（只渲染不落盘），适合本地看界面与联调。
+## 3. 快速开始
 
-### 2.2 生产部署
+### 3.1 本地体验（演示模式，无需 MySQL / nginx）
 
 ```bash
-# 1) 准备配置：改 RUN_MODE=prod、数据库、路径、SESSION_SECRET
-cp conf/app.ini conf/app.ini.local
+WAF_RUN_MODE=demo WAF_HTTP_PORT=5002 WAF_SESSION_SECRET=demo-secret go run .
+# 浏览器打开 http://127.0.0.1:5002 ，默认账号 admin / admin123
+```
 
-# 2) 编译前端（构建产物会被内嵌）
+演示模式使用内存仓储与内置样例数据，不会写 nginx 配置、也不会真的拦截请求。
+
+### 3.2 生产部署
+
+```bash
+# 1) 编译（前端产物已 embed 进二进制）
 cd web && npm install && npm run build && cd ..
-
-# 3) 编译后端并启动
 go build -o wafadmin .
+
+# 2) 配置
+vi conf/app.ini          # 数据库、[waf] 路径、[log] Redis、[security] SESSION_SECRET
+
+# 3) 启动
 ./wafadmin -config conf/app.ini
 
-# 4) 把 lua-waf/ 部署到 openresty 侧，并在 vhost 中 access_by_lua 调用 waf.check()
+# 4) 部署 lua 侧并重载 nginx
+rsync -av lua-waf/lib/ lua-waf/*.lua lua-waf/rules/ /www/server/nginx/x-waf/
+nginx -t && nginx -s reload
 ```
 
-细节见 [docs/OPS.md](docs/OPS.md)。
+必看的三条：`[waf] LUA_CONFIG` 必须指向 nginx **实际加载**的 `config.lua`；
+`[log] INGEST_ENABLED = on`；`[security] SESSION_SECRET` 一定要设置（否则每次重启登录态失效）。
 
----
-
-## 3. 目录结构
+## 4. 日志链路（唯一一种入库方式）
 
 ```
-lua-waf 管理台
-├── main.go                    入口（子命令分发 / HTTP 服务）
-├── conf/app.ini               运行配置（可在线编辑）
-├── internal/
-│   ├── app/                   组合根：装配仓储、服务、路由
-│   ├── cli/                   子命令：version / reset-password / list-users / help
-│   ├── config/                app.ini 解析、写回、校验
-│   ├── ingest/                Redis 日志队列消费者（批量写 MySQL，at-least-once）
-│   ├── model/                 领域模型 + 内置规则类型目录
-│   ├── nginx/                 站点配置与规则文件渲染、nginx reload
-│   ├── repository/            仓储接口 + mysql / memory 两套实现
-│   ├── service/               业务逻辑（规则、日志、站点、AI、看板、WAF 配置…）
-│   └── transport/httpapi/     HTTP 路由、中间件（会话 / CSRF / 限流 / 恢复）
-├── pkg/                       captcha / crypto / geo / ratelimit / redis / response / session / sqlwatch
-├── lua-waf/                   openresty 侧 WAF（waf.lua、body.lua、util.lua、config.lua、rules/）
-├── web/                       Vue 3 前端源码（构建产物 web/dist 内嵌）
-└── docs/                      架构、配置、规则、接口、运维文档
+openresty --RPUSH--> Redis(waf:logs) --BRPOPLPUSH--> wafadmin 消费者 --批量 INSERT--> MySQL.waf_log
 ```
 
----
+| 环节 | 关键配置 | 说明 |
+|---|---|---|
+| 生产 | `config.lua`：`config_log_mode = "redis"` + `config_redis_*` | 写失败自动回落本地文件（不丢日志） |
+| 队列 | `config_redis_list_key` ↔ `[log] REDIS_LIST_KEY` | 两边必须一致 |
+| 消费 | `conf/app.ini`：`[log] INGEST_ENABLED = on` | lua 侧**不直连 MySQL**，不再需要 lua-resty-mysql |
+| 落库 | `waf_log` 表 | 后台启动自动建表 + 补索引 |
 
-## 4. 文档索引
+`config_log_mode = "file"` 时日志只写本地文件，后台日志页不会有数据（属预期）。
+
+## 5. 部署形态与依赖
+
+| 依赖 | 要求 |
+|---|---|
+| openresty | ≥ 1.19（需要 `ngx.re`、`ngx.timer`、`lua_shared_dict`） |
+| Lua 库 | `resty.redis`、`resty.lrucache`（已内置 `lua-waf/lib/`，无需 opm；也可换成官方库） |
+| MySQL | 5.7 / 8.0，`waf` 库 + 读写账号 |
+| Redis | 任意版本，仅用 List 命令（RPUSH / BRPOPLPUSH / LREM / LLEN） |
+| Go | 1.24+（仅编译期） |
+| Node | 18+（仅前端构建期） |
+
+nginx.conf 需要的最小声明：
+
+```nginx
+lua_package_path "/www/server/nginx/x-waf/lib/?.lua;/www/server/nginx/x-waf/?.lua;;";
+lua_shared_dict limit         100m;   # CC / 限频计数
+lua_shared_dict waf_bans       20m;   # 自动封禁表
+init_by_lua_file        /www/server/nginx/x-waf/init.lua;
+init_worker_by_lua_file /www/server/nginx/x-waf/init_worker.lua;
+access_by_lua_file      /www/server/nginx/x-waf/access.lua;
+```
+
+## 6. 文档索引
 
 | 文档 | 内容 |
 |---|---|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 分层架构、模块职责、请求链路、关键设计决策 |
-| [docs/CONFIG.md](docs/CONFIG.md) | `app.ini` 全部配置项 + 环境变量 + `config.lua` 47 项 WAF 配置说明 |
-| [docs/RULES.md](docs/RULES.md) | 规则文件格式、12 步检测链路、匹配语义、规则清单、误报治理 |
-| [docs/API.md](docs/API.md) | 全部 HTTP 接口（分组 + 示例） |
-| [docs/OPS.md](docs/OPS.md) | 部署、升级、reload、日志链路排障、备份回滚、FAQ |
-| [CHANGELOG.md](CHANGELOG.md) | 变更记录 |
+| [docs/README.md](docs/README.md) | 文档索引（按角色找入口） |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 分层设计、模块职责、数据流、关键取舍 |
+| [docs/CONFIG.md](docs/CONFIG.md) | `conf/app.ini` 与 `lua-waf/config.lua` 全部配置项 |
+| [docs/RULES.md](docs/RULES.md) | 规则集格式、下发与同步、限频规则、检测顺序 |
+| [docs/API.md](docs/API.md) | 全部 HTTP 接口（含请求/响应示例） |
+| [docs/OPS.md](docs/OPS.md) | 部署、依赖、巡检、故障排查手册 |
+| [CHANGELOG.md](CHANGELOG.md) | 变更记录（按主题） |
 
----
+## 7. 常用命令
 
-## 5. 三条核心链路（速查）
-
-### 5.1 请求防护链路（openresty 侧）
-
+```bash
+go build -o wafadmin .            # 编译
+go test ./...                     # 测试（含 memory 仓储的回归用例）
+./wafadmin reset-password admin   # 重置后台密码（CLI）
+curl -s localhost:5002/api/health # 健康检查
 ```
-请求 → 1 IP 白名单(放行) → 2 封禁名单/自动封禁 → 3 畸形请求 → 4 IP 黑名单
-     → 5 请求头检测 → 6 User-Agent → 7 URL 白名单(放行) → 8 URL 检测
-     → 9 CC 频率 → 10 Cookie → 11 GET 参数 → 12 请求体（JSON 按字段 / multipart 按分段）
-     → 命中：写日志 → 拦截（html / redirect / 幻影降级）→ 可选自动封禁
-```
-
-所有规则统一以 `ngx.re.find(..., "joi")` 执行（PCRE + JIT + **大小写不敏感**）；
-URL / Cookie / 参数 / 请求头在匹配前会做 `util.normalize()`（多轮 URL 解码 + `%uXXXX` + HTML 实体 + 去 SQL 注释）。
-详见 [docs/RULES.md](docs/RULES.md)。
-
-### 5.2 日志入库链路（lua 只写，Go 负责入库）
-
-| 模式 | 配置 | 说明 |
-|---|---|---|
-| 文件 | `config_log_mode = "file"` | lua 写本地日志文件，后台不读 |
-| Redis + 后台消费 | `config_log_mode = "redis"` + `conf/app.ini` 的 `[log] INGEST_ENABLED = on` | lua 只 RPUSH 进队列，`wafadmin` 批量写 MySQL（at-least-once）——**推荐** |
-
-> lua 侧已**移除直连 MySQL** 的能力（不再需要 `lua-resty-mysql`）：落库统一交给后台，
-> 削峰、可观察（队列长度 / 失败数 / 最近入库时间），也不会因为数据库抖动拖慢 nginx。
-
-看板「日志入库队列」卡片会实时显示待处理 / 处理中 / 已入库 / 失败、队列键与最近错误。
-
-### 5.3 AI 研判链路
-
-日志或慢 SQL → 后台拼装提示词（命中规则、请求内容、SQL 与执行信息）→ 调用 OpenAI 兼容接口 →
-结果写服务端缓存（默认 10 分钟）→ 前端展示 Markdown 与截断提示。配置入口：系统设置 → AI 设置。
-
----
-
-## 6. 安全设计要点
-
-- 登录：图形验证码 + 登录频率限制；会话为 HMAC 签名 Cookie（`waf_session`）；
-- CSRF：双提交（`waf_csrf` cookie + `X-CSRF-Token` 头），写接口强制校验；
-- 口令：`md5(md5(raw)[5:10])` 兼容历史库；忘记密码用 `./wafadmin reset-password` 重置；
-- 敏感配置（MySQL / Redis 口令、AI api_key）在接口层**脱敏**（`abcd****wxyz`），提交掩码表示不修改；
-- SQL 全部走仓储层参数化；慢 SQL 由 `pkg/sqlwatch` 采集。
-
----
-
-## 7. 常见问题（速查）
-
-| 现象 | 处理 |
-|---|---|
-| 重启后要重新登录 | `conf/app.ini` 的 `[security] SESSION_SECRET` 为空会每次随机生成，填固定值即可 |
-| 「从规则文件同步」提示目录不可读 | 后台机器没有 nginx 规则目录，配置 `[waf] RULE_IMPORT_DIR = lua-waf/rules` |
-| 规则改了不生效 | 后台点「下发全部规则」→ openresty 侧 `nginx -t && nginx -s reload` |
-| 攻击日志不增长 | 检查 `config_log_mode`、Redis 队列长度、看板「日志入库队列」失败数与最近错误 |
-| AI 分析报「调用大模型接口失败」 | 多为超时：检查 AI 设置的超时时间（分析类最少 180 秒）与网关连通性 |
-
-更多见 [docs/OPS.md](docs/OPS.md)。

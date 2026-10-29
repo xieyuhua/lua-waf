@@ -1,217 +1,52 @@
 # 变更记录
 
-> 版本号对应 `main.go` 中的 `version`。同一版本内按**主题**归类，不逐条罗列小改动。
+按主题汇总（新→旧）。细节以 git 提交为准。
 
----
+## 日志链路
 
-## 2.0.0（当前）
+- **lua 只写 Redis，Go 统一入库**：移除 `log_mysql.lua` / `log_consumer.lua` / `lib/resty/mysql.lua`；
+  `log_sink` 只保留 `file` / `redis` 两种模式；配置项 47 → 37。
+- **消费者可诊断**：启动时 PING Redis 并打印就绪/失败结论（含积压条数、队列键）；
+  入库错误翻译（1146 表不存在 / 1142 权限不足 / 1406 字段超长）。
+- **Redis 失败熔断**：口令错或 Redis 宕机时 5 秒内不再重试、WARN 限频，避免拖慢请求与刷爆 error.log；
+  恢复后自动解除。
+- **`waf_log` 自动建表**：加入自动建表清单（含 5 个索引）；建表失败不阻塞启动并给出手工建表指引。
 
-分两大部分：**后端分层重构 + 后台 Vue 3 重写**，以及随后持续叠加的检测能力与运维能力。
+## WAF 配置
 
-### 架构与工程
+- 在线编辑 `config.lua`：按行替换、保留注释与顺序、`.bak` 备份、原子写入。
+- 选项卡合并为 4 个：基础(15) / 拦截页面(1) / 检测开关(15) / 日志输出(6)。
+- 「测试连接」（Redis PING）与「生效自检」（路径一致性、日志模式、Redis、目录、最近入库），
+  结果按行展示 ok/warn/error。
+- 修复混类型保存报 1001（前端数字控件提交 number，后端按 `map[string]any` 接收后统一转字符串）。
+- `[waf] LUA_CONFIG` 默认改为 nginx 实际路径，修复"改的是仓库副本、reload 不生效"。
 
-- 后端改为五层结构 `transport/httpapi → service → repository → model`，基础设施下沉到 `pkg/*` 与 `internal/nginx`，
-  依赖方向单向；业务按域一文件一结构体（`service/*.go`）。
-- 组合根 `internal/app`：按「配置 → 仓储 → 服务 → 接入层」装配，负责首次初始化与优雅关闭。
-- 仓储抽象为接口，提供 `mysql`（xorm）与 `memory`（演示/测试，含内置样例数据）两套实现。
-- 配置为 `默认值 < conf/app.ini < 环境变量`，支持 `WAF_*` 覆盖并在启动时校验。
-- 移除 macaron 及其 session/csrf/captcha/cache 依赖，改标准库 `net/http`（Go 1.22 路由）。
-- 前端 Vue 3 + Vite + Element Plus + ECharts 重写；产物经 `//go:embed` 内嵌进二进制，单文件交付。
-- 文档重整：`README` + `docs/{ARCHITECTURE,CONFIG,RULES,API,OPS}.md`。
+## 规则
 
-### WAF 检测能力（lua 侧）
+- 规则文件同步取并集：文件有库里没有的新增，库里已有的保留。
+- 同步统计口径修正：`in_files = added + kept`，重复条目计入 `duplicates`，新增 `total`；
+  跳过 `ratelimit.rule`。
+- 新增规则启用/停用、命中统计（按 `rule_tag` 聚合）与命中样本。
+- 新增请求头检测阶段与归一化（3 次解码 / `%uXXXX` / HTML 实体 / 去注释）。
+- 畸形请求检测：TE.CL、CL.CL、非法 TE/CL、NUL、裸换行、控制字符、超长请求行、非法 Host；
+  **修复 `get_headers(0,true)` 头名未小写导致所有请求被判「缺失Host头」**。
 
-- 新增**请求头检测**阶段（`header.rule`）：Host 注入、`X-Forwarded-For`/`X-Real-IP` 伪造内网地址、头部 Log4Shell、
-  多级 XFF 堆叠、Referer `javascript:`、`X-Original-URL` 穿越、CRLF 注入等。检测链路变为 12 步。
-- 新增**参数归一化** `util.normalize()`：多轮 URL 解码 + `%uXXXX` + HTML 实体 + 去 SQL 注释，
-  编码绕过样本命中率 5/8 → 8/8。
-- **请求体字段级检测**：JSON 递归展开键与字符串值、multipart 逐段检测、上传后缀白名单（`post.upload.ext`）。
-- **UA 白名单** `whiteua.rule`：内部拨测/监控探针可跳过 UA 检测。
-- 规则匹配统一 `ngx.re.find(..., "joi")`（PCRE + JIT + 大小写不敏感），IP 黑白名单也统一为不敏感。
-- 规则加固覆盖近五年攻击面：Log4Shell/Spring4Shell、fastjson/jackson、SQLi 变体、命令执行、SSRF/云元数据、
-  XXE、原型链、GraphQL 内省、SSTI、Shiro/JNDI、以及 ProxyShell/MOVEit/OFBiz/PHPUnit/Laravel/ThinkPHP/
-  Nacos/actuator/Druid/H2/Jenkins/Solr/Docker/K8s 等 CVE 探测路径。
-  当前：args 50 / post 40 / url 27 / cookie 25 / header 12 / useragent 3 / blackip 38 / whiteip 8 / whiteUrl 7。
+## 限频
 
-### 规则与配置管理
+- 新增「限频规则」：按 URL 精细化限频，维度支持 `ip / header / cookie / arg / uri / site / method / referer`，
+  可拦截或仅记录；自动下发 `rules/ratelimit.rule`。
+- 页面优化：概览数字、空状态场景模板、URL/阈值/动作的视觉区分。
 
-- 规则**逐条启停**（`rules.enabled`，老库自动补列且保持启用），停用规则保留不下发。
-- **规则文件与数据库取并集**（`POST /api/rules/sync-files`）：文件有库里没有的新增，库里已有的不覆盖不删除；
-  支持 `RULE_PATH` 与 `RULE_IMPORT_DIR` 多目录合并，跨目录去重、坏文件容错。
-- **规则命中统计与样例**（防护分析）：按日志 `rule_tag` 聚合排行（今天/7/30 天），点击查看真实命中日志并可一键停用。
-- **检测与拦截顺序**说明（`GET /api/rules/pipeline`），在安全概览顶部可展开查看（默认收起）。
-- **WAF 配置独立菜单 + 模块选项卡**：`config.lua` 47 项按 9 个模块展示；
-  新增 `code` 控件支持**拦截页 HTML 在线编辑**（Lua 长字符串 `[[ ... ]]` 读写、拒绝 `]]`）；
-  后端按职责拆分 `luaconfig_schema.go` / `luaconfig_parse.go` / `luaconfig.go`。
-- 攻击地图默认展示**今日**数据；`config.lua` 在线编辑 + 一键 reload。
+## 日志与统计
 
-### 日志与数据
+- 修复日志接口 20~45 秒超时报 1500：自动补建 `waf_log` 索引（5 个）、
+  去掉 `GROUP_CONCAT(area)`、IP 排行两段式 + 默认近 30 天、筛选项 DISTINCT + 60 秒缓存。
+- 攻击地图默认「今日」；新增「检测与拦截顺序」折叠面板（概览顶部）。
+- 慢 SQL 统计支持时间筛选与 AI 分析；AI 分析结果可回看（缓存 10 分钟）。
 
-- **Redis → Go 消费入库**（at-least-once）：`BRPOPLPUSH` + processing 队列 + 崩溃回灌；新增 `internal/ingest` 与
-  `pkg/redis`（零依赖 RESP 客户端）。
-- 安全概览新增「**日志入库队列**」卡片：待处理/处理中/已入库/失败、状态徽标、队列深度折线、未启用时的三步指引。
-- 修复 xorm `Count()` 重置 WHERE 导致的「列表返回全量、总数却是过滤后」（日志/站点/账号/慢 SQL 仓储统计与列表分表查询）。
-- 慢 SQL 统计支持时间范围、按 SQL 归并；后台自身慢 SQL 由 `pkg/sqlwatch` 采集展示。
+## 安全与体验
 
-### AI 研判
-
-- 攻击日志与慢 SQL 均支持 AI 分析；结果服务端缓存（默认 10 分钟）并跨设备可见。
-- 输出不再被截断：提高最大 tokens、`finish_reason=length` 时自动续写、截断状态可见。
-- 修复「结果只有标题没有正文」（模型正文为空 / 推理模型 `reasoning_content`）。
-- 修复「调用大模型接口失败」实为超时：分析类超时下限 180 秒、瞬时错误重试一次、错误信息可诊断。
-
-### 界面与体验
-
-- 全站移动端自适应（侧栏抽屉、网格降列、表格列裁剪、图表自适应）；主题明暗切换与主题色。
-- 系统设置合并为选项卡页（运行配置 / 外观设置 / AI 设置 / 账号设置），WAF 配置独立成菜单。
-- 攻击地图支持缩放/漫游、攻击状态条、攻击箭头、按 IP 归属地精确落点；地理库覆盖 483 个城市/地区/国家。
-
-### 安全
-
-- 登录验证码 + 登录频率限制；HMAC 签名会话 Cookie；写接口 CSRF 双提交。
-- 口令 `md5(md5(raw)[5:10])` 兼容历史库；新增 CLI `reset-password` / `list-users` / `version`。
-- 敏感配置（MySQL/Redis 口令、AI api_key）接口层脱敏，提交掩码表示不修改。
-
-### 修复（WAF 配置保存与连通性自检）
-
-- **修复保存 WAF 配置报「请求参数格式不正确」**：接口原先按 `map[string]string` 绑定，
-  而前端数字控件（`el-input-number`）提交的是 JSON 数字，只要保存涉及任一瞬间数值字段就会 400/1001；
-  改为 `map[string]any` 接住后统一转字符串（数字按十进制、布尔按 `on`/`off`），前端也统一转字符串提交。
-- **新增「测试连接」**：`POST /api/lua/config/test` 用表单当前值测试 Redis（PING）与 MySQL（Ping），
-  WAF 配置页工具条新增按钮，保存前即可确认地址/口令是否可用；错误信息按类型翻译
-  （拒绝连接 / 超时 / 域名解析失败 / Access denied / Unknown database / Redis 口令错误），口令支持掩码复用已保存值。
-
-### 新增（按 URL 的精细化限频）
-
-- **限频规则**（防护配置 → 限频规则）：不同 URL 可配不同阈值，并可选择按
-  `ip` / `header`（如 `X-API-Key`）/ `cookie` / `arg`（URL 参数）/ `uri` 维度计数，
-  超限动作支持 `block`（拦截）与 `log`（只记录观察）；完整 CRUD + 启停 + 一键下发。
-- lua 侧新增 `ratelimit.lua`：读取 `<RULE_PATH>/ratelimit.rule`（按 mtime 热加载），
-  按顺序匹配、第一条命中生效；计数使用 `ngx.shared.limit`（TTL = 窗口秒），
-  命中日志区分 `限频攻击`（拦截）与 `限频观察`（仅记录），`rule_tag = ratelimit:<id>`。
-  在请求链路中位于「URL 检测」之后、全局 CC 检测之前。
-- 后台新增 `ratelimit_rule` 表（MySQL / 内存双实现）、`RateLimitService`（校验 + 渲染下发）、
-  接口 `GET/POST/PUT/DELETE /api/ratelimit`、`PUT /api/ratelimit/{id}/enabled`、`POST /api/ratelimit/sync`；
-  校验覆盖：正则合法性、维度名必填、阈值 1~1000000、窗口 1~86400、动作枚举。
-
-### 修复（`Table ''waf.waf_log'' doesn''t exist`）
-
-- **`waf_log` 之前不在自动建表清单里**：`ensureTables` 只建 site/rules/user/slow_sql/setting
-  （以及新增的 ratelimit_rule），`waf_log` 一直依赖 lua 侧 `sql/waf_log.sql` 手工执行，
-  换库/新库后消费者一写就报 `Error 1146`，日志全部入库失败。
-- 现已加入自动建表清单，首次启动打印 `[info] 已创建表 waf_log`，
-  随后 `ensureIndexes` 自动补齐 local_time / attack_type / client_ip / server_name / (client_ip, local_time) 索引。
-- **建表失败不再阻塞启动**：改为 `[error] 创建表 X 失败：…` 并（对 waf_log）额外打印
-  「用有建表权限的账号执行 `mysql -u root -p <库名> < lua-waf/sql/waf_log.sql`」，
-  避免因权限不足导致整个后台起不来。
-- 消费端对入库错误做翻译：1146 表不存在 / 1142 权限不足 / 1406 字段超长，
-  直接 `[error] 日志批量入库失败：… （附带修复建议）`。
-
-### 修复（「从规则文件同步」条数不准）
-
-- **「已存在」把重复条目也算进去了**：跨目录/跨文件重复出现的规则，之前每条都累加 `kept`，
-  于是出现「保留 337 条」而库内其实只有 216 条的虚高。现在用 `seen` 去重：
-  重复条目单独计入新增的 `duplicates` 字段，不再污染「已存在」。
-- **口径可自证**：新增 `in_files`（去重后文件条数）= `added` + `kept`；新增 `total`（同步后库内规则总数），
-  结果提示改为「文件 11 个，去重后 210 条：新增 0 条，已存在 210 条；库内现有 216 条规则」。
-- **同步误扫 `ratelimit.rule`**：限频规则的下发文件 schema 是 `{id,pattern,key,...}`，与规则集不同，
-  以前会被当作「无效条目」计入 skipped 并让文件数偏大，现在直接跳过。
-- 前端同步提示同步展示 `duplicates / total`，并把「保留」改称「已存在」。
-
-### 修复（所有请求被误判为「畸形请求」）
-
-- 根因：`malformed.lua` 用 `ngx.req.get_headers(0, true)` 取头，`raw=true` 时 **头名不会被转小写**
-  （实际是 `Host`、`Content-Length`…），而后续用 `headers["host"]`、`headers["content-length"]` 索引，
-  于是恒为 nil → 每条请求都命中「缺失Host头」→ 全部记录为畸形请求并被拦截。
-- 修复：新增 `normalize_headers()` 把原始头表统一成小写键名；`host_check` 在取不到头时回退
-  `ngx.var.http_host / ngx.var.host` 兜底。
-- 顺带修复重复 `Content-Length` 的误判：原来把 `{"5","5"}` 拼成 `"5,5"` 后按整数校验失败，
-  现在逐个校验（取值一致的重复头是合法的）。
-
-### 改进（消费链路可诊断性）
-
-- `[log] INGEST_ENABLED` 默认改为 `on`：redis 模式下 lua 只写队列，没人消费就永远不入库。
-- 消费者启动时先 PING 一次并打印结论：
-  成功 → `日志入库消费者已就绪：Redis <addr> db=<n>，源队列 waf:logs（当前积压 N 条）…`；
-  失败 → `[error] 日志入库消费者无法连接 Redis… / Redis PING 失败…（口令或权限可能不对）`，
-  直接指出「队列里的日志不会被消费」，不再静默空转。
-- docs/OPS.md 新增 4.3「Redis 里的日志一直没被消费」五步排查（开关 / 连通性 / 口令库号 / 队列键 / 实时指标）。
-
-### 改进（WAF 配置选项卡合并）
-
-- 「基础」「频率与请求体」「自动封禁」「目录」四个选项卡合并为 **基础（15 项）**；
-  「日志输出」「Redis 队列」合并为 **日志输出（6 项）**。配置总数仍为 37 项，只是选项卡从 8 个变成 4 个：
-  基础 / 拦截页面 / 检测开关 / 日志输出，字段顺序保持不变（仍是「总开关 → 拦截方式 → 频率 → 请求体 → 自动封禁 → 目录」）。
-
-### 新增（限频维度扩充）
-
-- 限频规则的计数维度在 `ip / header / cookie / arg / uri` 基础上新增三个**可选**维度：
-  `site`（站点 Host / server_name）、`method`（请求方法）、`referer`（来源页，防盗链场景），
-  三者都不需要填维度名。lua 侧 `resolve_key` 各加一行，后台校验/可读名与前端下拉同步更新。
-
-### 重构（lua 只写 Redis，Go 统一入库）
-
-- **移除 lua 侧 MySQL 相关代码**：删除 `log_mysql.lua`、`log_consumer.lua`、`lib/resty/mysql.lua`；
-  `log_sink.lua` 只保留 `file` / `redis` 两种模式（去掉内存队列 push/drain/requeue 与 mysql 分支），
-  Redis 写入失败仍回落写文件并打 WARN；`init_worker.lua` 不再启动 nginx 侧消费者。
-- **配置项精简 47 → 37**：删除 `config_mysql_*`（6）、`config_redis_consume`（1）、
-  `config_log_batch_size`/`config_log_flush_interval`/`config_log_queue_size`（3）；
-  `config_log_mode` 只允许 `file` / `redis`；后台「WAF 配置」的 MySQL 选项卡随之移除。
-- **后台固定承担消费**：redis 模式下 `[log] INGEST_ENABLED` 必须为 `on`；
-  「生效自检」新增检查——未开启则直接报错（日志只进 Redis 不入库），并校验
-  `[log] REDIS_LIST_KEY` 与 `config_redis_list_key` 是否一致。
-- 依赖减负：lua 侧不再需要 `lua-resty-mysql`，只要 `resty.redis`（已内置纯 Lua 实现）。
-
-### 新增（lua 侧依赖内置，缺库不再「哑失败」）
-
-- **内置零依赖依赖库** `lua-waf/lib/resty/`：
-  `redis.lua`（RESP 客户端，支持 new/connect/auth/select/ping/rpush/lpush/lpop/rpop/llen/lrange/
-  set/get/setex/incr/expire/del/exists/set_keepalive，接口与官方 lua-resty-redis 同名同参）、
-  `lrucache.lua`（IP 归属地缓存用）、`mysql.lua`（占位实现，缺库时返回可读错误并提示改 redis 模式）。
-  通过 `lua_package_path "/www/server/nginx/x-waf/lib/?.lua;…"` 引入，无需编译、无需 opm。
-- `log_redis.lua` / `log_mysql.lua` 改为**运行时加载依赖**：缺库时返回可读错误而不是抛 Lua 异常，
-  log_sink 仍会回落写文件（不丢日志），error.log 里能直接看到原因与解决建议。
-- `nginx.conf` 示例合并为单条 `lua_package_path`（含 lib 路径），避免重复指令导致 `nginx -t` 失败。
-- 用 fengari 对内置 redis 客户端做了行为验证（模拟 ngx.socket.tcp）：PING→PONG、AUTH 错误透传、
-  RPUSH→:123、LLEN→:5、LPOP→bulk string、连接断开返回 nil+错误。
-
-### 改进（自检判据更准）
-
-- 「生效自检」在 `config_redis_consume = on` 时不再把队列长度 0 当作异常（nginx 自己消费，长度本就接近 0），
-  改为以「**最近入库时间**」作为日志链路的最终判据：直接查 `waf_log` 最新一条攻击日志的时间，
-  30 分钟内有新增即判定链路正常；同时给出「日志目录最近是否还有写入」的结论。
-
-### 修复（日志接口超时报 1500）
-
-- **`/api/logs`、`/api/logs/filters`、`/api/logs/overview` 报「查询日志失败 / 统计攻击类型失败」**：
-  根因是 `waf_log`（百万行）缺索引 + 查询里 `GROUP_CONCAT(DISTINCT area)`（area 上千种取值），
-  单次 20~45 秒，客户端等不及超时即 500。修复：
-  ① 启动时**自动补建索引**（local_time / attack_type / client_ip / server_name / (client_ip,local_time)，幂等）；
-  ② 类型统计去掉 `GROUP_CONCAT(area)`；③ IP 排行改两段式（先取 Top N 再回表）并默认只统计近 30 天；
-  ④ 筛选项改 `SELECT DISTINCT attack_type` + 60 秒缓存。
-  实测：类型统计 27s→0.6s、IP 排行 33s→0.4s、概览 45s→1.8s、看板 4.7s→0.04s。
-
-### 修复（日志模式不生效 / 改错文件）
-
-- **`[waf] LUA_CONFIG` 默认改回 nginx 实际路径**（`/www/server/nginx/x-waf/config.lua`）：
-  之前是相对路径 `lua-waf/config.lua`，后台改的是仓库副本，nginx reload 后自然不生效（本地联调用 `WAF_LUA_CONFIG` 覆盖）。
-- **新增「生效自检」**（`GET /api/lua/config/verify` + WAF 配置页按钮）：逐项检查
-  ① 配置路径是否绝对路径、② 规则目录同目录下是否还有另一份 config.lua（很可能是 nginx 真正加载的那份）、
-  ③ 日志模式取值与 Redis 连通性（连接失败会提示「log_sink 会回落到写文件」）、
-  ④ `config_redis_consume` 与后台 `[log] INGEST_ENABLED` 是否冲突、⑤ 规则目录是否存在，
-  并给出 ok/warn/error 与总结论。
-
-### 已知问题 / 注意
-
-- `conf/app.ini` 的 `SESSION_SECRET` 为空时每次重启会失效会话，生产必须填固定值。
-- `args.rule` 的 `\$\{` 规则在 JSON 请求体中可能误伤，必要时收窄或停用。
-- `useragent.rule` 的脚本客户端规则会拦 `python-requests`、`curl`，内部拨测请用 `whiteua.rule` 白名单。
-- 曾短暂引入 APISIX 插件下发（镜像复制 / key 限流），已按需求移除，相关代码与文档不再保留。
-
----
-
-## 1.x（历史）
-
-1.x 为旧版（macaron 框架 + 模板渲染），主要能力：攻击日志查看、规则文件管理、站点管理。
-2.0.0 重写时保留其数据结构（`waf_log`、`rules`、`site`、`user`、`slow_sql`）与口令算法，
-并新增「表已存在时只补缺失列」的兼容策略，便于从 1.x 平滑升级。
+- 后台口令双 md5、验证码、登录限流、双提交 CSRF、会话签名 Cookie。
+- Vue 3 重构后台：统一设计系统、4 套主题、深浅色切换、移动端自适应。
+- 站点管理一键下发 vhost 并 reload；配置/规则下发前校验（`nginx -t`）。
+- 内置纯 Lua 依赖 `resty.redis` / `resty.lrucache`，无需 opm；缺库时不再哑失败。
