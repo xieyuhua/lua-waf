@@ -1,11 +1,11 @@
 --[[
     Redis 队列（lua-resty-redis）
 
-    生产端：access 阶段把日志 RPUSH 到 config_redis_list_key；
-    消费端：ngx.timer 定时 LPOP 一批，交给 log_mysql 批量落库。
+    本模块只做「生产」：access/重写阶段把日志 RPUSH 到 config_redis_list_key。
+    消费完全交给后台 wafadmin（[log] INGEST_ENABLED = on），lua 侧不做任何入库。
 
-    适用于多台 WAF 汇聚到同一个 Redis 再统一入库，或需要削峰的场景。
     连接池：set_keepalive 复用连接，避免每次请求都握手。
+    失败语义：连接/鉴权/写入失败时返回 false + 原因，由 log_sink 决定回落到写文件。
 ]]
 
 local config = require("config")

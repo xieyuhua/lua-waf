@@ -89,6 +89,15 @@ function _M.write_file(record)
     end
 end
 
+-- Redis 故障时的「熔断」状态（每个 worker 各自一份，不需要共享内存）：
+--   redis_fail_until —— 在这个时间点之前不再尝试写 Redis（直接写文件）
+--   redis_warn_at    —— 上次打告警的时间，用于限制告警频率
+-- 目的：口令错误 / Redis 宕机时，不要每个请求都去握手一次（会拖慢请求）并把 error.log 刷爆。
+local REDIS_COOLDOWN = 5
+local redis_fail_until = 0
+local redis_warn_at = 0
+local redis_skipped = 0
+
 -- 首次写入时打印一次实际生效的模式，便于排查「配了 redis 却还在写文件」
 local announced = false
 
@@ -118,6 +127,13 @@ function _M.write(record)
             return
         end
 
+        -- 熔断期内直接写文件，不再尝试 Redis（常见于口令错误/Redis 宕机）
+        if redis_fail_until > 0 and ngx.now() < redis_fail_until then
+            redis_skipped = redis_skipped + 1
+            _M.write_file(normalized)
+            return
+        end
+
         -- 运行时加载：缺库时给出可读错误而不是抛异常
         local ok_load, log_redis = pcall(require, "log_redis")
         if not ok_load or log_redis == nil or type(log_redis) ~= "table" then
@@ -128,10 +144,23 @@ function _M.write(record)
 
         local ok, err = log_redis.push(payload)
         if ok then
+            -- 成功即解除熔断
+            if redis_fail_until > 0 then
+                ngx.log(ngx.WARN, "[waf] Redis 队列已恢复，结束回落写文件（期间跳过 ", redis_skipped, " 条）")
+                redis_fail_until = 0
+                redis_skipped = 0
+            end
             return
         end
-        ngx.log(ngx.WARN, "[waf] Redis 队列写入失败（", tostring(config.config_redis_host), ":",
-            tostring(config.config_redis_port), "）：", tostring(err), "，回落写文件")
+
+        -- 失败：进入熔断期，并按频率限制打告警（否则每个请求一条日志会刷爆 error.log）
+        redis_fail_until = ngx.now() + REDIS_COOLDOWN
+        if redis_warn_at == 0 or ngx.now() - redis_warn_at >= REDIS_COOLDOWN then
+            redis_warn_at = ngx.now()
+            ngx.log(ngx.WARN, "[waf] Redis 队列写入失败（", tostring(config.config_redis_host), ":",
+                tostring(config.config_redis_port), "）：", tostring(err),
+                "，日志已回落写文件；", REDIS_COOLDOWN, " 秒内不再重试 Redis（检查口令/地址/服务状态）")
+        end
         _M.write_file(normalized)
         return
     end
