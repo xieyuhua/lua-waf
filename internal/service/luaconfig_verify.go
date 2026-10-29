@@ -120,7 +120,7 @@ func (s *LuaConfigService) Verify(ctx context.Context) (*LuaVerifyView, error) {
 			add("redis_conn", "Redis 连通性", "ok", test.Message+"（"+address+"）")
 		} else if test != nil {
 			add("redis_conn", "Redis 连通性", "error",
-				test.Message+"（"+address+"）。log_sink 在写 Redis 失败时会**回落到写文件**，这就是「配了 redis 还在写文件」的常见原因")
+				test.Message+"（"+address+"）。log_sink 在写 Redis 失败时会「回落到写文件」，这就是「配了 redis 还在写文件」的常见原因")
 		}
 
 		// lua 只写队列，落库完全依赖后台消费者：未开启时日志会在 Redis 里堆积
@@ -210,10 +210,18 @@ func (s *LuaConfigService) Verify(ctx context.Context) (*LuaVerifyView, error) {
 		if latest, okTime, err := s.latestLogTime(ctx); err == nil && okTime {
 			age := time.Since(latest)
 			level := "ok"
-			message := fmt.Sprintf("最近一条攻击日志入库于 %s（%s 前）", latest.Format("2006-01-02 15:04:05"), age.Round(time.Minute))
-			if age > 30*time.Minute {
+			stamp := latest.Format("2006-01-02 15:04:05")
+			var message string
+			if age < 0 {
+				// 日志时间比本机时间还晚：多为日志写入方与后台时钟/时区不一致
+				message = fmt.Sprintf("最近一条攻击日志时间为 %s，比本机时间还晚 %s（检查 nginx 与后台的时区/时钟是否一致）", stamp, (-age).Round(time.Minute))
 				level = "warn"
-				message += "；半小时内没有新日志，若线上有攻击请检查 nginx 侧是否回落写文件（error.log 搜「Redis 队列写入失败」）"
+			} else {
+				message = fmt.Sprintf("最近一条攻击日志入库于 %s（%s 前）", stamp, age.Round(time.Minute))
+				if age > 30*time.Minute {
+					level = "warn"
+					message += "；半小时内没有新日志，若线上有攻击请检查 nginx 侧是否回落写文件（error.log 搜「Redis 队列写入失败」）"
+				}
 			}
 			add("db_recent", "最近入库", level, message)
 		}

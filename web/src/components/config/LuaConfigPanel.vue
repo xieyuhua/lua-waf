@@ -14,7 +14,7 @@
  * 界面结构：模块选项卡（基础 / 检测开关 / 频率与请求体 / 自动封禁 / 目录 / 拦截页面 /
  * 日志输出 / MySQL 落库 / Redis 队列 / 未纳入表单），选项卡内两列网格，code 类型占满整行。
  */
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, h, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { luaApi } from '../../api/lua'
 
@@ -111,27 +111,76 @@ async function save(reload = false) {
   }
 }
 
+// 自检 / 连接测试结果的配色
+const LEVEL_STYLE = {
+  error: { color: '#f56c6c', mark: '✘' },
+  warn: { color: '#e6a23c', mark: '!' },
+  ok: { color: '#67c23a', mark: '✔' }
+}
+
+/** 把一条结果渲染成一行（label 加粗 + 说明），保证内容一行一行展示 */
+function renderResultLine(level, label, message) {
+  const style = LEVEL_STYLE[level] ?? LEVEL_STYLE.ok
+  return h('div', { style: 'display:flex;gap:8px;align-items:flex-start;padding:5px 0' }, [
+    h('span', { style: `flex:0 0 auto;font-weight:700;color:${style.color}` }, style.mark),
+    h('span', { style: 'flex:1 1 auto;line-height:1.65;word-break:break-word' }, [
+      h('b', { style: `color:${style.color}` }, `${label}：`),
+      h('span', { style: 'color:#5c6070' }, message)
+    ])
+  ])
+}
+
+/** 组装弹窗内容：顶部概要 + 逐行结果 */
+function renderResultPanel(meta, items) {
+  const header = h(
+    'div',
+    {
+      style:
+        'margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid #ebeef5;font-size:12.5px;color:#606266;line-height:1.9'
+    },
+    meta.map((line) => h('div', {}, line))
+  )
+  const body = h(
+    'div',
+    { style: 'max-height:56vh;overflow:auto;font-size:13px' },
+    items.map((item) => renderResultLine(item.level, item.label, item.message))
+  )
+  return h('div', { style: 'text-align:left' }, [header, body])
+}
 /** 测试 Redis / MySQL 连通性（用表单当前值，可测未保存的配置） */
 async function testConnections() {
   testing.value = true
   try {
     const result = await luaApi.test(collect())
-    const lines = []
+    const items = []
     if (result?.redis) {
-      lines.push(`Redis ${result.redis.address}：${result.redis.ok ? '✔ ' : '✘ '}${result.redis.message}`)
+      items.push({
+        level: result.redis.ok ? 'ok' : 'error',
+        label: `Redis ${result.redis.address}`,
+        message: result.redis.message
+      })
     }
     if (result?.mysql) {
-      lines.push(`MySQL ${result.mysql.address}：${result.mysql.ok ? '✔ ' : '✘ '}${result.mysql.message}`)
+      items.push({
+        level: result.mysql.ok ? 'ok' : 'error',
+        label: `MySQL ${result.mysql.address}`,
+        message: result.mysql.message
+      })
     }
-    if (!lines.length) {
-      lines.push('未配置 Redis / MySQL 地址，无需测试')
+    if (!items.length) {
+      items.push({ level: 'warn', label: '未配置 Redis 地址', message: '在「日志输出」里填写 Redis 后再测试' })
     }
 
-    const failed = (result?.redis && !result.redis.ok) || (result?.mysql && !result.mysql.ok)
-    ElMessageBox.alert(lines.join('\n'), failed ? '连接测试未通过' : '连接测试通过', {
-      type: failed ? 'error' : 'success',
-      confirmButtonText: '知道了'
-    })
+    const failed = items.some((item) => item.level === 'error')
+    ElMessageBox.alert(
+      renderResultPanel([`测试对象：${items.length} 项`], items),
+      failed ? '连接测试未通过' : '连接测试通过',
+      {
+        type: failed ? 'error' : 'success',
+        confirmButtonText: '知道了',
+        customStyle: { maxWidth: '720px' }
+      }
+    )
   } catch (error) {
     ElMessage.error(error.message || '测试连接失败')
   } finally {
@@ -144,17 +193,22 @@ async function verifyConfig() {
   verifying.value = true
   try {
     const result = await luaApi.verify()
-    const lines = result.items.map((item) => {
-      const mark = item.level === 'error' ? '✘' : item.level === 'warn' ? '!' : '✔'
-      return `${mark} ${item.label}：${item.message}`
-    })
+    const problems = result.items.filter((item) => item.level === 'error').length
+    const notices = result.items.filter((item) => item.level === 'warn').length
+
+    const meta = [
+      `配置路径：${result.path}`,
+      `日志模式：${result.mode || '未设置'}`,
+      `检查结果：${problems} 项问题 / ${notices} 项提醒 / ${result.items.length} 项检查`
+    ]
+
     ElMessageBox.alert(
-      `当前配置路径：${result.path}\n日志模式：${result.mode || '未设置'}\n\n` + lines.join('\n'),
+      renderResultPanel(meta, result.items),
       result.verdict === 'error' ? '自检发现问题' : result.verdict === 'warn' ? '自检有提醒' : '自检通过',
       {
         type: result.verdict === 'error' ? 'error' : result.verdict === 'warn' ? 'warning' : 'success',
         confirmButtonText: '知道了',
-        customStyle: { maxWidth: '720px' }
+        customStyle: { maxWidth: '760px' }
       }
     )
   } catch (error) {
