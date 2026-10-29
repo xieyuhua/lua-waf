@@ -7,7 +7,6 @@ local io = require("io")
 local cjson = require("cjson.safe")
 local string = require("string")
 local config = require("config")
-local mysql = require "resty.mysql"
 local Ip2Region = require("ip2region")
 
 local _M = {
@@ -294,6 +293,94 @@ function _M.normalize(text)
     out = ngx.re.gsub(out, [[/\*.*?\*/]], "", "jo")
 
     return out
+end
+
+-- ===== 规则匹配（带字面量预筛）=====
+-- 背景：每类规则几十条，每条都跑一次 PCRE（即使有 JIT）也是浪费；
+-- 绝大多数规则都包含一段「必然出现在任何匹配中」的固定字面量（如 "union select"、".git"）。
+-- 这里先把规则里的字面量抽出来做一次朴素的子串判断，不命中就直接跳过正则。
+--
+-- 安全性：只有规则**不含**以下结构时才抽取，避免误判导致漏检：
+--   分组 () / 交替 | / 字符类 [ ] / 可选 ? / 重复 * { } / 锚点 ^ $
+-- 抽取到的字面量长度需 >= 3，且统一转小写后比较（与 "i" 标志一致）。
+
+local LITERAL_CACHE = {}
+
+-- 从规则里抽取「必须出现」的字面量，没有则返回 nil
+local function required_literal(rule)
+    local cached = LITERAL_CACHE[rule]
+    if cached ~= nil then
+        if cached == false then
+            return nil
+        end
+        return cached
+    end
+
+    if string.find(rule, "[|%(%)%[%]%?%*{^$]", 1) then
+        LITERAL_CACHE[rule] = false
+        return nil
+    end
+
+    local best, run = nil, {}
+    local i, n = 1, #rule
+    local function flush()
+        if #run >= 3 then
+            local text = table.concat(run)
+            if best == nil or #text > #best then
+                best = text
+            end
+        end
+        run = {}
+    end
+
+    while i <= n do
+        local byte = string.sub(rule, i, i)
+        if byte == "\\" then
+            -- 转义：取被转义的那个字符作为字面量（如 \. -> .）
+            local escaped = string.sub(rule, i + 1, i + 1)
+            if escaped ~= "" and not string.find(escaped, "%w") then
+                run[#run + 1] = escaped
+                i = i + 2
+            else
+                -- \d \w \s 这类是字符类，无法确定字面量
+                flush()
+                i = i + 2
+            end
+        elseif byte == "+" then
+            -- 前一个字符必须出现至少一次，但它已经算进 run 里了，这里只断开
+            flush()
+            i = i + 1
+        else
+            run[#run + 1] = byte
+            i = i + 1
+        end
+    end
+    flush()
+
+    if best == nil then
+        LITERAL_CACHE[rule] = false
+        return nil
+    end
+
+    best = string.lower(best)
+    LITERAL_CACHE[rule] = best
+    return best
+end
+
+-- 规则匹配：先做字面量预筛，再走 PCRE（flags 通常为 "joi"）
+function _M.rulematch(subject, rule, flags)
+    if subject == nil or rule == nil or rule == "" then
+        return nil
+    end
+
+    local literal = required_literal(rule)
+    if literal ~= nil then
+        if not string.find(string.lower(subject), literal, 1, true) then
+            return nil
+        end
+    end
+
+    return ngx.re.find(subject, rule, flags or "joi")
 end
 
 return _M

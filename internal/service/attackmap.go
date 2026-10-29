@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"wafadmin/internal/model"
@@ -86,10 +87,26 @@ type AttackMapService struct {
 	Resolver geo.Resolver
 	// TargetArea 为防护目标地区文本（如 中国-北京），用于绘制攻击箭头。
 	TargetArea string
+
+	// snapshotCache 缓存大屏快照（默认 45 秒），按统计范围区分。
+	snapshotCache *statsCache[*AttackMapSnapshot]
+	cacheOnce     sync.Once
+}
+
+// initCache 懒初始化缓存。
+func (s *AttackMapService) initCache() {
+	s.cacheOnce.Do(func() {
+		s.snapshotCache = newStatsCache[*AttackMapSnapshot](defaultStatsCacheTTL)
+	})
 }
 
 // Snapshot 生成大屏快照，day 为 today 时只统计当日数据。
 func (s *AttackMapService) Snapshot(ctx context.Context, day string) (*AttackMapSnapshot, error) {
+	s.initCache()
+	if cached, ok := s.snapshotCache.Get("snapshot:" + day); ok {
+		return cached, nil
+	}
+
 	filter := repository.StatsFilter{Limit: attackMapIPLimit}
 	rangeLabel := "全部时间"
 	if day == "today" {
@@ -208,6 +225,7 @@ func (s *AttackMapService) Snapshot(ctx context.Context, day string) (*AttackMap
 
 	snapshot.Target = s.target()
 	snapshot.Status = s.status(ctx, recent)
+	s.snapshotCache.Set("snapshot:"+day, snapshot)
 	return snapshot, nil
 }
 

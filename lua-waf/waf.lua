@@ -2,7 +2,6 @@
 
 ]]
 
-local rulematch = ngx.re.find
 local unescape = ngx.unescape_uri
 
 local config = require("config")
@@ -45,7 +44,7 @@ function _M.white_ip_check()
         local WHITE_IP = util.get_client_ip()
         if IP_WHITE_RULE ~= nil then
             for _, rule in pairs(IP_WHITE_RULE) do
-                if rule ~= "" and rulematch(WHITE_IP, rule, "joi") then
+                if rule ~= "" and util.rulematch(WHITE_IP, rule, "joi") then
                     return true
                 end
             end
@@ -79,7 +78,7 @@ function _M.black_ip_check()
         -- BLACK_IP = '106.91.161.188'
         if IP_BLACK_RULE ~= nil then
             for _, rule in pairs(IP_BLACK_RULE) do
-                if rule ~= "" and rulematch(BLACK_IP, rule, "joi") then
+                if rule ~= "" and util.rulematch(BLACK_IP, rule, "joi") then
                     -- util.log_record(config.config_log_dir, '黑名单ip', ngx.var_request_uri, "_", "_")
                     if config.config_waf_enable == "on" then
                         ngx.exit(403)
@@ -99,7 +98,7 @@ function _M.white_url_check()
         local REQ_URI = ngx.var.request_uri
         if URL_WHITE_RULES ~= nil then
             for _, rule in pairs(URL_WHITE_RULES) do
-                if rule ~= "" and (rulematch(REQ_URI, rule, "joi") or rulematch(util.normalize(REQ_URI), rule, "joi")) then
+                if rule ~= "" and (util.rulematch(REQ_URI, rule, "joi") or util.rulematch(util.normalize(REQ_URI), rule, "joi")) then
                     return true
                 end
             end
@@ -163,7 +162,7 @@ function _M.white_ua_check()
     end
 
     for _, rule in pairs(WHITE_UA_RULES) do
-        if rule ~= "" and rulematch(UA, rule, "joi") then
+        if rule ~= "" and util.rulematch(UA, rule, "joi") then
             return true
         end
     end
@@ -188,7 +187,7 @@ function _M.header_attack_check()
                 local line = name .. ": " .. tostring(single)
                 local normalized = util.normalize(line)
                 for _, rule in pairs(HEADER_RULES) do
-                    if rule ~= "" and (rulematch(line, rule, "joi") or rulematch(normalized, rule, "joi")) then
+                    if rule ~= "" and (util.rulematch(line, rule, "joi") or util.rulematch(normalized, rule, "joi")) then
                         util.log_record(config.config_log_dir, '请求头攻击', ngx.var.request_uri, name, rule)
                         if config.config_waf_enable == "on" then
                             util.waf_output()
@@ -208,7 +207,7 @@ function _M.cookie_attack_check()
         local USER_COOKIE = ngx.var.http_cookie
         if USER_COOKIE ~= nil then
             for _, rule in pairs(COOKIE_RULES) do
-                if rule ~= "" and (rulematch(USER_COOKIE, rule, "joi") or rulematch(util.normalize(USER_COOKIE), rule, "joi")) then
+                if rule ~= "" and (util.rulematch(USER_COOKIE, rule, "joi") or util.rulematch(util.normalize(USER_COOKIE), rule, "joi")) then
                     util.log_record(config.config_log_dir, 'Cookie攻击', ngx.var.request_uri, "-", rule)
                     if config.config_waf_enable == "on" then
                         util.waf_output()
@@ -227,7 +226,7 @@ function _M.url_attack_check()
         local URL_RULES = _M.get_rule('url.rule')
         local REQ_URI = ngx.var.request_uri
         for _, rule in pairs(URL_RULES) do
-            if rule ~= "" and (rulematch(REQ_URI, rule, "joi") or rulematch(util.normalize(REQ_URI), rule, "joi")) then
+            if rule ~= "" and (util.rulematch(REQ_URI, rule, "joi") or util.rulematch(util.normalize(REQ_URI), rule, "joi")) then
                 util.log_record(config.config_log_dir, '黑名单url', REQ_URI, "-", rule)
                 if config.config_waf_enable == "on" then
                     util.waf_output()
@@ -253,7 +252,7 @@ function _M.url_args_attack_check()
                     ARGS_DATA = val
                 end
                 
-                if ARGS_DATA and type(ARGS_DATA) ~= "boolean" and rule ~= "" and rulematch(util.normalize(unescape(ARGS_DATA)), rule, "joi") then
+                if ARGS_DATA and type(ARGS_DATA) ~= "boolean" and rule ~= "" and util.rulematch(util.normalize(unescape(ARGS_DATA)), rule, "joi") then
                     util.log_record(config.config_log_dir, 'get参数攻击', ngx.var.request_uri, "-", rule)
                     if config.config_waf_enable == "on" then
                         util.waf_output()
@@ -277,7 +276,7 @@ function _M.user_agent_attack_check()
         local USER_AGENT = ngx.var.http_user_agent
         if USER_AGENT ~= nil then
             for _, rule in pairs(USER_AGENT_RULES) do
-                if rule ~= "" and rulematch(USER_AGENT, rule, "joi") then
+                if rule ~= "" and util.rulematch(USER_AGENT, rule, "joi") then
                     util.log_record(config.config_log_dir, 'user-agent攻击', ngx.var.request_uri, "-", rule)
                     if config.config_waf_enable == "on" then
                         util.waf_output()

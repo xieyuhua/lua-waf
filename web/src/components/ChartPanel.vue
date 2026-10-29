@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { viewport } from '../utils/responsive'
-import * as echarts from 'echarts'
+import echarts from '../utils/echarts'
 
 const props = defineProps({
   option: { type: Object, required: true },

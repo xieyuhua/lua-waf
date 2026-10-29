@@ -2,6 +2,18 @@
 
 按主题汇总（新→旧）。细节以 git 提交为准。
 
+## 优化（P2 / P3 落地）
+
+- **仓储一致性测试**：新增 `repositorytest` 套件，同一组断言同时跑 MySQL 与内存实现
+  （分页/过滤/计数/CRUD/排序），MySQL 侧用 `WAF_TEST_MYSQL_ADDR` 开关启用。
+- **组合根拆分**：`app.go` 拆为 `app.go` / `wire_repos.go` / `wire_services.go`。
+- **统一工具**：handler 路径 ID 解析收敛到 `httpapi.pathID`；前端 ECharts 改为按需引入
+  （chunk 1036 KB → 653 KB，gzip 343 → 218 KB）。
+- **统计缓存**：概览 / 看板 / 攻击地图结果缓存 45 秒（`statsCache`），刷新页面不再重复聚合。
+- **日志保留策略**：新增 `[log] RETENTION_DAYS` 与 `RetentionService`，每日分批清理超期 `waf_log`（默认关闭）。
+- **规则匹配预筛**：lua 侧 `util.rulematch` 先做字面量子串判断，未命中直接跳过 PCRE；
+  同时移除 `util.lua` 里已废弃的 `resty.mysql` 依赖。
+
 ## 代码整理
 
 - 删除死代码（`mysql/ratelimit.go` 未使用的 `sortRules`）；新增 `service/secret.go` 统一「脱敏值判定」，

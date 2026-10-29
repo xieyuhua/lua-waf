@@ -115,6 +115,30 @@ mysql -u root -p waf < lua-waf/sql/waf_log.sql
 （常见于面板的站点流量统计）。`ls -l` 看 socket 属主/权限，给 nginx worker 用户可写权限，
 或改成 `access_log /path/site.log main;` / `syslog:server=127.0.0.1:514`。
 
+### 4.7 `waf_log` 越来越大
+
+两层手段：
+
+1. **查询侧**（已内置）：`local_time` / `attack_type` / `client_ip` / `server_name` / `(client_ip, local_time)`
+   索引自动补齐；类型统计不再 `GROUP_CONCAT(area)`；IP 排行默认只看近 30 天。
+2. **容量侧**：`conf/app.ini` 的 `[log] RETENTION_DAYS`（默认 0 = 不清理）。
+   设为 N 后，后台每天删除 `local_time` 早于「今天-N 天」的日志，日志里会打印
+   `已清理超期日志 X 条（早于 …）`。
+
+```ini
+[log]
+RETENTION_DAYS = 180      ; 保留半年，删前请先 mysqldump 归档
+```
+
+> 删除是分批的（每批上限 5 万行），不会一次锁表；仍然建议在低峰期首次启用。
+> 需要「冷热分离」（历史表 `waf_log_history` + 分区）时见 `docs/ROADMAP.md` P3-1。
+
+### 4.8 统计接口的缓存
+
+概览 / 看板 / 攻击地图的结果缓存 **45 秒**（键分别为 `days`、`summary`、`range`）。
+所以刚发生攻击后，最多 45 秒才会出现在概览数字里——这是有意的取舍（避免每次刷新都做多次聚合）。
+需要立刻看最新数据时，直接查「攻击日志」页（该页不缓存）。
+
 ## 5. 备份与恢复
 
 | 对象 | 建议 |

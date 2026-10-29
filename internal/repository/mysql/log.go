@@ -326,3 +326,23 @@ func (r *logRepo) buildFilter(q model.LogQuery) (string, []any) {
 	}
 	return strings.Join(conditions, " AND "), args
 }
+
+// PurgeBefore 删除 local_time 早于 before 的日志（local_time 是字符串，按字典序比较即可）。
+//
+// 用途：数据保留策略。建议先用 mysqldump 归档再删除，避免历史数据不可追溯。
+func (r *logRepo) PurgeBefore(ctx context.Context, before string) (int64, error) {
+	defer r.observer.Trace(ctx, "log.purge_before", "DELETE FROM waf_log WHERE local_time < ?")()
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+
+	result, err := r.engine.Exec("DELETE FROM waf_log WHERE local_time < ? LIMIT 50000", before)
+	if err != nil {
+		return 0, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return 0, nil
+	}
+	return affected, nil
+}

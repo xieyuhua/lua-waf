@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import * as echarts from 'echarts'
+import echarts, { ensureWorldMap } from '../utils/echarts'
 import worldGeo from '../assets/world.geo.json'
 import ChartPanel from '../components/ChartPanel.vue'
 import { dashboardApi } from '../api/dashboard'
@@ -26,7 +26,7 @@ let mapRegistered = false
 /** 注册世界地图（只需一次） */
 function ensureMap() {
   if (mapRegistered) return
-  echarts.registerMap('world', worldGeo)
+  ensureWorldMap(worldGeo)
   mapRegistered = true
 }
 

@@ -55,6 +55,7 @@
 | `REDIS_LIST_KEY` | `waf:logs` | 队列键，必须与 `config_redis_list_key` 一致 |
 | `INGEST_BATCH` | `200` | 单批入库条数 |
 | `INGEST_BLOCK_MS` | `2000` | BRPOPLPUSH 阻塞毫秒数 |
+| `RETENTION_DAYS` | `0` | 日志保留天数：0=不清理；N>0 时每天删除 `local_time` 早于「今天-N 天」的 `waf_log`（建议先 mysqldump 归档） |
 
 ### 1.5 `[security]`
 

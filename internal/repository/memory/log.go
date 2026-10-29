@@ -384,3 +384,25 @@ func sortedKeys(set map[string]struct{}) []string {
 	sort.Strings(keys)
 	return keys
 }
+
+// PurgeBefore 删除本地时间早于 before 的日志，返回删除条数。
+func (r *logRepo) PurgeBefore(ctx context.Context, before string) (int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+
+	r.store.mu.Lock()
+	defer r.store.mu.Unlock()
+
+	kept := make([]model.WafLog, 0, len(r.store.logs))
+	var removed int64
+	for _, item := range r.store.logs {
+		if item.LocalTime < before {
+			removed++
+			continue
+		}
+		kept = append(kept, item)
+	}
+	r.store.logs = kept
+	return removed, nil
+}

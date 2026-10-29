@@ -72,6 +72,8 @@ type LogIngestConfig struct {
 	Batch int
 	// BlockMS 为阻塞等待毫秒数。
 	BlockMS int
+	// RetentionDays 为日志保留天数（0 表示不清理）。超过该天数的 waf_log 会被定时删除。
+	RetentionDays int
 }
 type Config struct {
 	// Source 记录配置文件的加载来源，（defaults）表示全部使用默认值。
@@ -248,6 +250,7 @@ func (l *Loader) applyINI(cfg *Config, file *ini.File) {
 	cfg.LogIngest.ListKey = logSection.Key("REDIS_LIST_KEY").MustString(cfg.LogIngest.ListKey)
 	cfg.LogIngest.Batch = logSection.Key("INGEST_BATCH").MustInt(cfg.LogIngest.Batch)
 	cfg.LogIngest.BlockMS = logSection.Key("INGEST_BLOCK_MS").MustInt(cfg.LogIngest.BlockMS)
+	cfg.LogIngest.RetentionDays = logSection.Key("RETENTION_DAYS").MustInt(cfg.LogIngest.RetentionDays)
 
 	if ms := file.Section("monitor").Key("SLOW_SQL_MS").MustInt(int(cfg.SlowSQLThreshold.Milliseconds())); ms > 0 {
 		cfg.SlowSQLThreshold = time.Duration(ms) * time.Millisecond

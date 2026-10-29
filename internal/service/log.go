@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strconv"
 	"sync"
 	"time"
 
@@ -30,6 +31,18 @@ type LogService struct {
 	cacheTypes []string
 	cacheAt    time.Time
 	cacheTTL   time.Duration
+
+	// overviewCache 缓存概览结果（默认 45 秒），避免反复做多次聚合查询。
+	overviewCache *statsCache[*LogOverview]
+	// cacheOnce 保证懒初始化只执行一次。
+	cacheOnce sync.Once
+}
+
+// initCache 懒初始化缓存（零值 LogService 也能安全使用）。
+func (s *LogService) initCache() {
+	s.cacheOnce.Do(func() {
+		s.overviewCache = newStatsCache[*LogOverview](defaultStatsCacheTTL)
+	})
 }
 
 // cachedAttackTypes 命中缓存时返回类型清单。
@@ -111,6 +124,12 @@ func (s *LogService) Trend(ctx context.Context, days int) ([]model.DateStat, err
 
 // Overview 返回日志统计摘要，days 为趋势天数。
 func (s *LogService) Overview(ctx context.Context, days int) (*LogOverview, error) {
+	s.initCache()
+	cacheKey := "overview:" + strconv.Itoa(days)
+	if cached, ok := s.overviewCache.Get(cacheKey); ok {
+		return cached, nil
+	}
+
 	total, err := s.Logs.Count(ctx)
 	if err != nil {
 		return nil, ErrInternal.Wrap(err, "统计日志失败")
@@ -137,7 +156,9 @@ func (s *LogService) Overview(ctx context.Context, days int) (*LogOverview, erro
 		return nil, ErrInternal.Wrap(err, "查询最新日志失败")
 	}
 
-	return &LogOverview{Total: total, Today: today, Types: types, IPs: ips, Trend: trend, Top: recent}, nil
+	overview := &LogOverview{Total: total, Today: today, Types: types, IPs: ips, Trend: trend, Top: recent}
+	s.overviewCache.Set(cacheKey, overview)
+	return overview, nil
 }
 
 // AttackTypes 返回出现过的攻击类型，用于筛选项。

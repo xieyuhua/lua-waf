@@ -337,7 +337,7 @@ onBeforeUnmount(() => {
           :closable="false"
           style="margin-top: 10px"
           title="未启用「lua 写 Redis → Go 消费入库」"
-          description="启用需要三处配套：① config.lua 的 config_log_mode = redis；② config.lua 的 config_redis_consume = off（避免与 nginx 抢队列）；③ conf/app.ini 的 [log] INGEST_ENABLED = on 并填 REDIS_ADDR。当前使用 file / nginx 直连 MySQL 模式时该卡片为 0 属正常。"
+          description="启用需要三处配套：① config.lua 的 config_log_mode = redis；② Redis 口令/库号/队列键与 config.lua 的 config_redis_* 一致；③ conf/app.ini 的 [log] INGEST_ENABLED = on。config_log_mode = file 时该卡片为 0 属正常。"
         />
       </div>
       <div class="waf-grid waf-grid--3">

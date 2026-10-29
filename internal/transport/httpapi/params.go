@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"wafadmin/internal/model"
+	"wafadmin/internal/service"
 )
 
 // QueryParams 封装 URL 查询参数的解析，避免各 handler 重复写类型转换。
@@ -80,4 +81,21 @@ func (p PathParams) Int64(key string) int64 {
 // String 读取路径中的字符串参数。
 func (p PathParams) String(key string) string {
 	return strings.TrimSpace(p.Request.PathValue(key))
+}
+
+// pathID 解析路径参数里的正整数 ID（各 handler 共用，保证错误文案一致）。
+// 返回 ok=false 时已经写好错误响应，调用方直接 return 即可。
+func pathID(w http.ResponseWriter, r *http.Request, name string, responder Responder) (int64, bool) {
+	raw := strings.TrimSpace(r.PathValue(name))
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id <= 0 {
+		responder.Error(w, ErrInvalidPathID(name))
+		return 0, false
+	}
+	return id, true
+}
+
+// ErrInvalidPathID 生成一致的「路径参数不合法」错误。
+func ErrInvalidPathID(name string) error {
+	return service.ErrInvalid.New("请求路径不合法")
 }

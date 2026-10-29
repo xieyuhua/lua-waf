@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"net/http"
-	"strconv"
 
 	"wafadmin/internal/model"
 	"wafadmin/internal/service"
@@ -125,13 +124,7 @@ func (h *RateLimitHandler) sync(w http.ResponseWriter, r *http.Request) {
 	h.Responder.Data(w, result)
 }
 
-// parseId 解析路径里的规则 ID。
+// parseId 解析路径里的规则 ID（复用 httpapi.pathID）。
 func (h *RateLimitHandler) parseId(w http.ResponseWriter, r *http.Request) (int64, bool) {
-	raw := r.PathValue("id")
-	id, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil || id <= 0 {
-		h.Responder.Error(w, service.ErrInvalid.New("规则 ID 不合法"))
-		return 0, false
-	}
-	return id, true
+	return pathID(w, r, "id", h.Responder)
 }

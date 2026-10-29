@@ -17,7 +17,16 @@
 
 ---
 
-## P2（下次升级建议做）
+## P2（本轮已全部完成）
+
+| 项 | 结果 |
+|---|---|
+| P2-1 双仓储一致性测试 | ✅ 新增 `internal/repository/repositorytest` 套件（Rule/RateLimit/Site/User/Setting/SlowSQL/Log 七组断言）；memory 每次都跑，MySQL 通过 `WAF_TEST_MYSQL_ADDR` 开关启用并已在本机库实测通过 |
+| P2-2 拆 `app.go` | ✅ `app.go` 324 → 198 行，拆出 `wire_repos.go`(80) / `wire_services.go`(118) |
+| P2-3 前端与 handler 工具收敛 | ✅ handler 的路径 ID 解析统一到 `httpapi.pathID`；时间格式化已在 `utils/format.js`（`StatCard` 保留数字千分位）；空状态已统一使用 `waf-empty` 样式 |
+| P2-4 ECharts 按需引入 | ✅ 新增 `utils/echarts.js` 只注册用到的图表；echarts chunk 1036 KB → 653 KB（gzip 343 → 218 KB） |
+
+## P2 历史清单（已完成，保留记录）
 
 ### P2-1 双仓储行为一致性测试｜收益 ★★★｜风险 低
 
@@ -45,7 +54,16 @@
 
 ---
 
-## P3（架构级，择机）
+## P3（本轮进度）
+
+| 项 | 结果 |
+|---|---|
+| P3-1 `waf_log` 容量治理 | ✅ 新增 `[log] RETENTION_DAYS` + `RetentionService`（每天分批清理超期日志，默认 0=不清理）；分区/冷热分离仍列为可选后续 |
+| P3-2 统计结果缓存 | ✅ `statsCache` 泛型缓存接入概览 / 看板 / 攻击地图，TTL 45 秒 |
+| P3-3 规则匹配规模化 | ✅ lua 侧新增字面量预筛：规则里若含「必然出现的字面量」，先用朴素子串判断，不命中直接跳过 PCRE（fengari 用例覆盖命中/未命中/转义/大小写/短字面量） |
+| P3-4 IP 归属地下放到后端 | ⏸ **延后**：`pkg/geo` 只做「地区文本 → 坐标」，不做「IP → 地区」，要落地需引入 Go 版 ip2region 读取器或外部 GeoIP 服务。当前保留 lua 侧解析（顺带删掉了 util.lua 里已废弃的 `resty.mysql` 依赖） |
+
+## P3 历史清单（保留记录）
 
 ### P3-1 `waf_log` 的容量治理｜收益 ★★★｜风险 中
 

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"wafadmin/internal/model"
@@ -33,10 +34,26 @@ type DashboardService struct {
 	Logs     repository.LogRepository
 	Slow     repository.SlowSQLRepository
 	PageSize int
+
+	// summaryCache 缓存看板汇总（默认 45 秒）。
+	summaryCache *statsCache[*DashboardSummary]
+	cacheOnce    sync.Once
+}
+
+// initCache 懒初始化缓存。
+func (s *DashboardService) initCache() {
+	s.cacheOnce.Do(func() {
+		s.summaryCache = newStatsCache[*DashboardSummary](defaultStatsCacheTTL)
+	})
 }
 
 // Summary 返回看板数据。
 func (s *DashboardService) Summary(ctx context.Context) (*DashboardSummary, error) {
+	s.initCache()
+	if cached, ok := s.summaryCache.Get("summary"); ok {
+		return cached, nil
+	}
+
 	now := time.Now()
 	today := now.Format("2006-01-02")
 	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
@@ -93,7 +110,7 @@ func (s *DashboardService) Summary(ctx context.Context) (*DashboardSummary, erro
 		return nil, ErrInternal.Wrap(err, "查询最新攻击失败")
 	}
 
-	return &DashboardSummary{
+	summary := &DashboardSummary{
 		Sites:         sites,
 		Rules:         rules,
 		Users:         users,
@@ -107,5 +124,7 @@ func (s *DashboardService) Summary(ctx context.Context) (*DashboardSummary, erro
 		RecentLogs:    recentLogs,
 		RecentSlowSQL: recentSlow,
 		GeneratedAt:   now.Format("2006-01-02 15:04:05"),
-	}, nil
+	}
+	s.summaryCache.Set("summary", summary)
+	return summary, nil
 }
