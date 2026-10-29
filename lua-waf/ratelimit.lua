@@ -19,6 +19,7 @@
     说明：
       - 规则按顺序匹配，**命中第一条**就生效（所以把更具体的 URL 放前面）；
       - action = "block" 命中即拦截；action = "log" 只记日志不拦（用于先观察误伤）；
+      - key 可选：ip / uri / header / cookie / arg（需 key_name）、site / method / referer（不需要 key_name）；
       - 规则文件为空或读取失败时不影响其它检测。
 ]]
 
@@ -132,6 +133,15 @@ local function resolve_key(rule, uri)
             return nil
         end
         return ngx.var["arg_" .. name]
+    elseif kind == "site" then
+        -- 按站点（Host / server_name）计数，不填维度名
+        return ngx.var.server_name
+    elseif kind == "method" then
+        -- 按请求方法计数（GET / POST ...）
+        return ngx.var.request_method
+    elseif kind == "referer" then
+        -- 按来源页计数（防盗链场景）
+        return ngx.var.http_referer
     end
 
     return nil

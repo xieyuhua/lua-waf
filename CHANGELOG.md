@@ -94,6 +94,12 @@
   接口 `GET/POST/PUT/DELETE /api/ratelimit`、`PUT /api/ratelimit/{id}/enabled`、`POST /api/ratelimit/sync`；
   校验覆盖：正则合法性、维度名必填、阈值 1~1000000、窗口 1~86400、动作枚举。
 
+### 新增（限频维度扩充）
+
+- 限频规则的计数维度在 `ip / header / cookie / arg / uri` 基础上新增三个**可选**维度：
+  `site`（站点 Host / server_name）、`method`（请求方法）、`referer`（来源页，防盗链场景），
+  三者都不需要填维度名。lua 侧 `resolve_key` 各加一行，后台校验/可读名与前端下拉同步更新。
+
 ### 重构（lua 只写 Redis，Go 统一入库）
 
 - **移除 lua 侧 MySQL 相关代码**：删除 `log_mysql.lua`、`log_consumer.lua`、`lib/resty/mysql.lua`；

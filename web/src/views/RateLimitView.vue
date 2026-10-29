@@ -49,7 +49,10 @@ const keyOptions = [
   { value: 'header', label: '请求头（如 X-API-Key）' },
   { value: 'cookie', label: 'Cookie' },
   { value: 'arg', label: 'URL 参数' },
-  { value: 'uri', label: '完整 URI（每个 URL 各自计数）' }
+  { value: 'uri', label: '完整 URI（每个 URL 各自计数）' },
+  { value: 'site', label: '站点（Host / server_name）' },
+  { value: 'method', label: '请求方法（GET/POST…）' },
+  { value: 'referer', label: '来源页 Referer（防盗链）' }
 ]
 
 const keyNamePlaceholder = computed(() => {

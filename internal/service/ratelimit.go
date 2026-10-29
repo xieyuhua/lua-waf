@@ -43,6 +43,12 @@ const (
 	RateKeyArg = "arg"
 	// RateKeyURI 按完整 URI 计数（等价「每个 URL 各自计数」）。
 	RateKeyURI = "uri"
+	// RateKeySite 按站点（Host / server_name）计数。
+	RateKeySite = "site"
+	// RateKeyMethod 按请求方法（GET/POST/...）计数。
+	RateKeyMethod = "method"
+	// RateKeyReferer 按来源页（Referer）计数，常见于防盗链。
+	RateKeyReferer = "referer"
 )
 
 // 超限后的动作。
@@ -286,9 +292,9 @@ func normalizeRateRule(input model.RateLimitRule) (model.RateLimitRule, error) {
 	switch rule.Key {
 	case "":
 		rule.Key = RateKeyIP
-	case RateKeyIP, RateKeyHeader, RateKeyCookie, RateKeyArg, RateKeyURI:
+	case RateKeyIP, RateKeyHeader, RateKeyCookie, RateKeyArg, RateKeyURI, RateKeySite, RateKeyMethod, RateKeyReferer:
 	default:
-		return rule, ErrInvalid.New("计数维度只能是 ip / header / cookie / arg / uri")
+		return rule, ErrInvalid.New("计数维度只能是 ip / header / cookie / arg / uri / site / method / referer")
 	}
 
 	rule.KeyName = strings.TrimSpace(rule.KeyName)
@@ -336,6 +342,12 @@ func describeRateKey(rule model.RateLimitRule) string {
 		return "Cookie " + rule.KeyName
 	case RateKeyArg:
 		return "URL 参数 " + rule.KeyName
+	case RateKeySite:
+		return "站点（Host）"
+	case RateKeyMethod:
+		return "请求方法"
+	case RateKeyReferer:
+		return "来源页 Referer"
 	default:
 		return rule.Key
 	}

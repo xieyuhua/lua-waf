@@ -145,7 +145,7 @@
 | 字段 | 说明 |
 |---|---|
 | URL 匹配 | `prefix` 前缀（如 `/api/login`）或 `regex` 正则（如 `^/open/api/`，lua 侧 `ngx.re.find` 忽略大小写） |
-| 计数维度 | `ip` 来源 IP / `header` 请求头（如 `X-API-Key`）/ `cookie` / `arg` URL 参数 / `uri` 完整 URI |
+| 计数维度 | `ip` 来源 IP / `header` 请求头（如 `X-API-Key`）/ `cookie` / `arg` URL 参数 / `uri` 完整 URI / `site` 站点(Host) / `method` 请求方法 / `referer` 来源页 |
 | 阈值 | `limit` 次 / `window` 秒（窗口滑动由 `ngx.shared.limit` 的 TTL 控制） |
 | 超限动作 | `block` 直接拦截，或 `log` 只记录（用于观察是否误伤） |
 
@@ -167,6 +167,9 @@
 | 登录防爆破 | `/api/login`（前缀） | IP | 10 次 / 60 秒 | 拦截 |
 | 开放 API 按密钥限流 | `^/open/api/`（正则） | Header `X-API-Key` | 1000 次 / 60 秒 | 拦截 |
 | 下载防刷 | `/dl/`（前缀） | Cookie `session` | 20 次 / 60 秒 | 拦截 |
+| 全站单 IP 限速 | `/`（前缀） | IP | 120 次 / 60 秒 | 拦截 |
+| 防盗链 | `\.(zip\|mp4)$`（正则） | Referer | 30 次 / 60 秒 | 拦截 |
+| 提交接口防刷 | `/api/submit`（前缀） | 请求方法 | 5 次 / 60 秒 | 仅记录 |
 | 全站探活接口观察 | `/ping`（前缀） | URI | 100 次 / 60 秒 | 仅记录 |
 
 > 计数使用共享内存 `lua_shared_dict limit`（nginx.conf 中已有），重启 nginx 计数清零属正常。
