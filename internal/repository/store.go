@@ -25,11 +25,13 @@ type Repositories struct {
 	Log     LogRepository
 	SlowSQL SlowSQLRepository
 	Setting SettingRepository
+	// RateLimit 为按 URL 的精细化限频规则。
+	RateLimit RateLimitRepository
 }
 
 // Ready 判断仓储是否已完成装配，避免空指针导致的运行时 panic。
 func (r Repositories) Ready() bool {
-	return r.Site != nil && r.Rule != nil && r.User != nil && r.Log != nil && r.SlowSQL != nil && r.Setting != nil
+	return r.Site != nil && r.Rule != nil && r.User != nil && r.Log != nil && r.SlowSQL != nil && r.Setting != nil && r.RateLimit != nil
 }
 
 // Ensure 返回缺失的仓储名称，便于启动时给出明确错误。

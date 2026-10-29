@@ -81,6 +81,19 @@
   WAF 配置页工具条新增按钮，保存前即可确认地址/口令是否可用；错误信息按类型翻译
   （拒绝连接 / 超时 / 域名解析失败 / Access denied / Unknown database / Redis 口令错误），口令支持掩码复用已保存值。
 
+### 新增（按 URL 的精细化限频）
+
+- **限频规则**（防护配置 → 限频规则）：不同 URL 可配不同阈值，并可选择按
+  `ip` / `header`（如 `X-API-Key`）/ `cookie` / `arg`（URL 参数）/ `uri` 维度计数，
+  超限动作支持 `block`（拦截）与 `log`（只记录观察）；完整 CRUD + 启停 + 一键下发。
+- lua 侧新增 `ratelimit.lua`：读取 `<RULE_PATH>/ratelimit.rule`（按 mtime 热加载），
+  按顺序匹配、第一条命中生效；计数使用 `ngx.shared.limit`（TTL = 窗口秒），
+  命中日志区分 `限频攻击`（拦截）与 `限频观察`（仅记录），`rule_tag = ratelimit:<id>`。
+  在请求链路中位于「URL 检测」之后、全局 CC 检测之前。
+- 后台新增 `ratelimit_rule` 表（MySQL / 内存双实现）、`RateLimitService`（校验 + 渲染下发）、
+  接口 `GET/POST/PUT/DELETE /api/ratelimit`、`PUT /api/ratelimit/{id}/enabled`、`POST /api/ratelimit/sync`；
+  校验覆盖：正则合法性、维度名必填、阈值 1~1000000、窗口 1~86400、动作枚举。
+
 ### 重构（lua 只写 Redis，Go 统一入库）
 
 - **移除 lua 侧 MySQL 相关代码**：删除 `log_mysql.lua`、`log_consumer.lua`、`lib/resty/mysql.lua`；

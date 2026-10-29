@@ -43,6 +43,7 @@ const groups = [
       { label: '防护分析', icon: 'DataLine', to: '/waf-insight' },
       { label: 'WAF 规则', icon: 'Lock', to: '/rules', children: true },
       { label: 'WAF 配置', icon: 'SetUp', to: '/waf-config' },
+      { label: '限频规则', icon: 'Odometer', to: '/ratelimit' },
       { label: '账号管理', icon: 'User', to: '/users' }
     ]
   },

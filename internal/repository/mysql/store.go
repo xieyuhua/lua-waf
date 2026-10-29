@@ -42,6 +42,7 @@ func (s *Store) tables() []tableSpec {
 		{name: "user", bean: new(model.User)},
 		{name: "slow_sql", bean: new(model.SlowSQL)},
 		{name: "setting", bean: new(model.Setting)},
+		{name: "ratelimit_rule", bean: new(model.RateLimitRule)},
 	}
 }
 
@@ -79,6 +80,7 @@ func (s *Store) Open(database config.Database) error {
 	s.database = database.Name
 	s.Observer = &sqlwatch.Observer{Database: database.Name}
 
+	s.RateLimit = &rateLimitRepo{store: s}
 	s.Site = &siteRepo{engine: engine, observer: s.Observer}
 	s.Rule = &ruleRepo{engine: engine, observer: s.Observer}
 	s.User = &userRepo{engine: engine, observer: s.Observer}

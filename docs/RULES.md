@@ -135,3 +135,38 @@
 > 已知需要留意的两条规则：
 > - `useragent.rule` 的脚本客户端规则会拦 `python-requests`、`curl` 等，内部拨测请改用 `whiteua.rule` 白名单；
 > - `args.rule` 的 `\$\{` 在 JSON 请求体中可能误伤，必要时收窄或停用。
+## 按 URL 的精细化限频（ratelimit）
+
+除了 `config.lua` 里的全局 CC / IP 频率（`config_cc_rate` / `config_ipcc_rate`），
+还可以用「防护配置 → **限频规则**」给不同 URL 配不同阈值，并按不同维度计数。
+
+### 规则字段
+
+| 字段 | 说明 |
+|---|---|
+| URL 匹配 | `prefix` 前缀（如 `/api/login`）或 `regex` 正则（如 `^/open/api/`，lua 侧 `ngx.re.find` 忽略大小写） |
+| 计数维度 | `ip` 来源 IP / `header` 请求头（如 `X-API-Key`）/ `cookie` / `arg` URL 参数 / `uri` 完整 URI |
+| 阈值 | `limit` 次 / `window` 秒（窗口滑动由 `ngx.shared.limit` 的 TTL 控制） |
+| 超限动作 | `block` 直接拦截，或 `log` 只记录（用于观察是否误伤） |
+
+### 生效方式
+
+1. 保存规则后后台自动下发到 `<RULE_PATH>/ratelimit.rule`（JSON 数组）；
+2. lua 侧 `ratelimit.lua` 读取该文件（按 mtime 热加载），在请求链路中**按顺序匹配、第一条命中生效**；
+3. 因此**更具体的规则应排在前面**（列表按 ID 升序下发；需要调整顺序时按想要的优先级依次新建）。
+
+### 命中后的日志
+
+- 拦截：`attack_type = 限频攻击`，`rule_tag = ratelimit:<规则ID>`，`req_data` 里带维度值、窗口、实际次数与阈值；
+- 仅记录：`attack_type = 限频观察`，不拦截但会产生攻击日志，便于评估阈值。
+
+### 示例
+
+| 场景 | URL 匹配 | 维度 | 阈值 | 动作 |
+|---|---|---|---|---|
+| 登录防爆破 | `/api/login`（前缀） | IP | 10 次 / 60 秒 | 拦截 |
+| 开放 API 按密钥限流 | `^/open/api/`（正则） | Header `X-API-Key` | 1000 次 / 60 秒 | 拦截 |
+| 下载防刷 | `/dl/`（前缀） | Cookie `session` | 20 次 / 60 秒 | 拦截 |
+| 全站探活接口观察 | `/ping`（前缀） | URI | 100 次 / 60 秒 | 仅记录 |
+
+> 计数使用共享内存 `lua_shared_dict limit`（nginx.conf 中已有），重启 nginx 计数清零属正常。

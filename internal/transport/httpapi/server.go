@@ -31,6 +31,8 @@ type Deps struct {
 	Ingest    *ingest.Consumer
 	RuleSync  *service.RuleFileSync
 	Pipeline  *service.RulePipelineService
+	// RateLimit 为按 URL 的精细化限频规则服务。
+	RateLimit *service.RateLimitService
 }
 
 // Routes 提供统一的中间件包装器，各 handler 按需使用。
@@ -81,6 +83,7 @@ func (s *Server) register(mux *http.ServeMux) {
 	(&AuthHandler{Auth: s.Deps.Auth, Session: s.Session, Writer: s.Writer, Responder: Responder{Writer: s.Writer}}).Register(mux, routes)
 	(&SiteHandler{Sites: s.Deps.Sites, Sync: s.Deps.Sync, Responder: Responder{Writer: s.Writer}, Writer: s.Writer}).Register(mux, routes)
 	(&RuleHandler{Rules: s.Deps.Rules, Sync: s.Deps.Sync, RuleSync: s.Deps.RuleSync, RuleDir: s.Cfg.RulePath, RuleImportDir: s.Cfg.RuleImportDir, Pipeline: s.Deps.Pipeline, Responder: Responder{Writer: s.Writer}, Writer: s.Writer}).Register(mux, routes)
+	(&RateLimitHandler{Rules: s.Deps.RateLimit, Responder: Responder{Writer: s.Writer}, Writer: s.Writer}).Register(mux, routes)
 	(&UserHandler{Users: s.Deps.Users, Responder: Responder{Writer: s.Writer}, Writer: s.Writer}).Register(mux, routes)
 	(&LogHandler{Logs: s.Deps.Logs, Sites: s.Deps.Sites, Responder: Responder{Writer: s.Writer}, Writer: s.Writer}).Register(mux, routes)
 	(&DashboardHandler{Dashboard: s.Deps.Dashboard, Responder: Responder{Writer: s.Writer}}).Register(mux, routes)

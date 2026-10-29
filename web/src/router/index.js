@@ -64,6 +64,12 @@ export const routes = [
         meta: { title: 'WAF 配置', crumb: '防护配置 / WAF 配置' }
       },
       {
+        path: 'ratelimit',
+        name: 'ratelimit',
+        component: () => import('../views/RateLimitView.vue'),
+        meta: { title: '限频规则', crumb: '防护配置 / 限频规则' }
+      },
+      {
         path: 'waf-insight',
         name: 'waf-insight',
         component: () => import('../views/WafInsightView.vue'),

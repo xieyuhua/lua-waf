@@ -9,6 +9,11 @@ local config = require("config")
 local util = require("util")
 local body = require("body")
 local malformed = require("malformed")
+-- 按 URL 的精细化限频（rules/ratelimit.rule 由后台下发；缺文件时静默跳过）
+local ok_ratelimit, ratelimit = pcall(require, "ratelimit")
+if not ok_ratelimit then
+    ratelimit = nil
+end
 local ban = require("ban")
 
 local _M = {
@@ -98,6 +103,23 @@ function _M.white_url_check()
                     return true
                 end
             end
+        end
+    end
+    return false
+end
+
+-- 按 URL 的精细化限频（规则来自 rules/ratelimit.rule）
+function _M.ratelimit_check()
+    if ratelimit == nil then
+        return false
+    end
+
+    local hit, attack_type, detail, rule_tag = ratelimit.check()
+    if hit then
+        util.log_record(config.config_log_dir, attack_type, ngx.var.request_uri, detail, rule_tag)
+        if config.config_waf_enable == "on" then
+            util.waf_output()
+            return true
         end
     end
     return false
@@ -333,6 +355,7 @@ function _M.check()
     elseif _M.user_agent_attack_check() then
     elseif _M.white_url_check() then
     elseif _M.url_attack_check() then
+    elseif _M.ratelimit_check() then
     elseif _M.cc_attack_check() then
     elseif _M.cookie_attack_check() then
     elseif _M.url_args_attack_check() then

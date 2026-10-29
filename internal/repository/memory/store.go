@@ -20,12 +20,14 @@ type Store struct {
 	userSeq int64
 	logSeq  int64
 	slowSeq int64
+	rateSeq int64
 
-	sites []model.Site
-	rules []model.Rule
-	users []model.User
-	logs  []model.WafLog
-	slows []model.SlowSQL
+	sites      []model.Site
+	rules      []model.Rule
+	users      []model.User
+	logs       []model.WafLog
+	slows      []model.SlowSQL
+	rateLimits []model.RateLimitRule
 
 	settings map[string]string
 
@@ -42,6 +44,7 @@ func (s *Store) Init(seed bool) *Store {
 	s.Log = &logRepo{store: s}
 	s.SlowSQL = &slowSQLRepo{store: s}
 	s.Setting = &settingRepo{store: s}
+	s.RateLimit = &rateLimitRepo{store: s}
 	s.settings = make(map[string]string, 8)
 	if seed {
 		s.seedDemo()
