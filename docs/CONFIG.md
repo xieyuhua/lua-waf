@@ -113,10 +113,14 @@
 
 ## 2. `lua-waf/config.lua`（WAF 配置，共 37 项）
 
-后台「防护配置 → WAF 配置」按模块选项卡展示，这里按同样顺序列出。
+后台「防护配置 → WAF 配置」按 4 个模块选项卡展示（基础 / 拦截页面 / 检测开关 / 日志输出），这里按同样顺序列出。
 **lua 侧不再直连 MySQL**：`config_log_mode` 只有 `file` / `redis` 两种，日志落库统一由后台 `wafadmin` 消费 Redis 完成。
 
-### 2.1 基础（4）
+### 2.1 基础（15）
+
+> 合并了原有「基础」「频率与请求体」「自动封禁」「目录」四个模块。
+
+**总开关与拦截方式**
 
 | 键 | 说明 |
 |---|---|
@@ -124,6 +128,32 @@
 | `config_waf_model` | 拦截方式：`html` 拦截页 / `redirect` 跳转 / `jinghuashuiyue` 幻影降级 |
 | `config_waf_redirect_url` | redirect 模式的跳转地址 |
 | `config_expire_time` | 封禁时长（秒），0 表示不封禁 |
+
+**频率与请求体**
+
+| 键 | 说明 |
+|---|---|
+| `config_cc_rate` | CC 阈值，格式 `次数/秒`（如 `300/60` = 60 秒内同一 IP+URI 超过 300 次拦截） |
+| `config_ipcc_rate` | IP 阈值，格式 `次数/秒`（如 `120/7200` = 2 小时内同一 IP 超过 120 次拦截） |
+| `config_post_max_size` | 请求体检测上限（字节），超过则只记录不深检 |
+| `config_post_max_parts` | multipart 分段数上限，超过视为畸形请求 |
+
+**自动封禁**
+
+| 键 | 说明 |
+|---|---|
+| `config_auto_ban_check` | 自动封禁开关，命中阈值后把 IP 写入封禁表 |
+| `config_auto_ban_window` | 统计窗口（秒） |
+| `config_auto_ban_threshold` | 窗口内命中次数阈值 |
+| `config_auto_ban_types` | 参与自动封禁的攻击类型（逗号分隔，`*` 表示全部） |
+| `config_auto_ban_expire` | 封禁时长（秒） |
+
+**目录**
+
+| 键 | 说明 |
+|---|---|
+| `config_rule_dir` | 规则目录，须与 `[waf] RULE_PATH` 一致 |
+| `config_log_dir` | file 模式日志目录，须与 `[waf] LOG_DIR` 一致 |
 
 ### 2.2 拦截页面（1）
 
@@ -151,33 +181,17 @@
 | `config_ipcc_check` | 9 IP 频率检测 |
 | `config_malformed_check` | 3 畸形请求检测 |
 
-### 2.4 频率与请求体（4）
+### 2.4 日志输出（6）
 
-`config_cc_rate`（`次数/秒`）、`config_ipcc_rate`、`config_post_max_size`（字节）、`config_post_max_parts`。
-
-### 2.5 自动封禁（5）
-
-`config_auto_ban_check`、`config_auto_ban_window`、`config_auto_ban_threshold`、`config_auto_ban_types`、`config_auto_ban_expire`。
-
-### 2.6 目录（2）
-
-`config_rule_dir`（须与 `[waf] RULE_PATH` 一致）、`config_log_dir`（file 模式日志目录，须与 `[waf] LOG_DIR` 一致）。
-
-### 2.7 日志输出（1）
+> 合并了原有「日志输出」与「Redis 队列」两个模块：选 `redis` 模式时，下面的 Redis 参数就是日志队列。
 
 | 键 | 说明 |
 |---|---|
 | `config_log_mode` | `file` = 写本地日志文件；`redis` = 写 Redis 队列（推荐），由后台消费入库 |
-
-### 2.8 Redis 队列（5）
-
-| 键 | 说明 |
-|---|---|
 | `config_redis_host` / `config_redis_port` | Redis 地址 |
 | `config_redis_password` | 口令（接口层脱敏） |
 | `config_redis_db` | 库号 |
 | `config_redis_list_key` | 队列键名，须与后台 `[log] REDIS_LIST_KEY` 一致 |
-
 > 已移除的配置：`config_mysql_*`（6 项）、`config_redis_consume`（消费方改由后台固定承担）、
 > `config_log_batch_size` / `config_log_flush_interval` / `config_log_queue_size`（落库参数由后台消费者控制）。
 ## 3. 后台「AI 设置」配置项

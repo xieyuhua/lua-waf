@@ -54,18 +54,10 @@ const (
 	groupBase = "基础"
 	// groupCheck 检测开关：各个检测阶段的开关。
 	groupCheck = "检测开关"
-	// groupRate 频率与请求体：CC/IP 频率阈值、请求体检测上限。
-	groupRate = "频率与请求体"
-	// groupAutoBan 自动封禁：命中攻击后的自动封禁策略。
-	groupAutoBan = "自动封禁"
-	// groupPath 目录：规则目录等路径配置。
-	groupPath = "目录"
 	// groupOutput 拦截页面：拦截页 HTML 模板（多行）。
 	groupOutput = "拦截页面"
 	// groupLog 日志输出：日志模式与批量参数。
 	groupLog = "日志输出"
-	// groupRedis Redis 队列：写 Redis 队列用的连接参数与消费方。
-	groupRedis = "Redis 队列"
 )
 
 // luaFields 返回全部可编辑配置项（顺序即界面顺序）。
@@ -163,69 +155,69 @@ func luaFields() []luaField {
 
 		// ---------- 频率与请求体：阈值类参数 ----------
 		{
-			Key: "config_cc_rate", Label: "CC 阈值", Type: luaTypeText, Group: groupRate,
+			Key: "config_cc_rate", Label: "CC 阈值", Type: luaTypeText, Group: groupBase,
 			Desc: "格式 次数/秒，例如 300/60 表示 60 秒内同一 IP+URI 超过 300 次即拦截",
 		},
 		{
-			Key: "config_ipcc_rate", Label: "IP 阈值", Type: luaTypeText, Group: groupRate,
+			Key: "config_ipcc_rate", Label: "IP 阈值", Type: luaTypeText, Group: groupBase,
 			Desc: "格式 次数/秒，例如 120/7200 表示 2 小时内同 IP 超过 120 次即拦截",
 		},
 		{
-			Key: "config_post_max_size", Label: "请求体检测上限（字节）", Type: luaTypeNumber, Group: groupRate,
+			Key: "config_post_max_size", Label: "请求体检测上限（字节）", Type: luaTypeNumber, Group: groupBase,
 			Min: 0, Desc: "超过该长度的请求体只记录不深检，避免影响正常大文件上传",
 		},
 		{
-			Key: "config_post_max_parts", Label: "分段数量上限", Type: luaTypeNumber, Group: groupRate,
+			Key: "config_post_max_parts", Label: "分段数量上限", Type: luaTypeNumber, Group: groupBase,
 			Min: 0, Max: 5000, Desc: "multipart 分段数上限，超过视为畸形请求",
 		},
 
 		// ---------- 自动封禁：命中攻击后累计封禁 ----------
 		{
-			Key: "config_auto_ban_check", Label: "自动封禁", Type: luaTypeSwitch, Group: groupAutoBan,
+			Key: "config_auto_ban_check", Label: "自动封禁", Type: luaTypeSwitch, Group: groupBase,
 			Desc: "命中攻击后按 IP 计数，达到阈值写入封禁表，后续请求在第 2 步就被拦掉",
 		},
 		{
-			Key: "config_auto_ban_window", Label: "统计窗口（秒）", Type: luaTypeNumber, Group: groupAutoBan,
+			Key: "config_auto_ban_window", Label: "统计窗口（秒）", Type: luaTypeNumber, Group: groupBase,
 			Min: 1, Max: 3600, Desc: "在多少秒内累计命中次数",
 		},
 		{
-			Key: "config_auto_ban_threshold", Label: "命中阈值（次）", Type: luaTypeNumber, Group: groupAutoBan,
+			Key: "config_auto_ban_threshold", Label: "命中阈值（次）", Type: luaTypeNumber, Group: groupBase,
 			Min: 1, Max: 1000, Desc: "窗口内命中多少次后开始封禁",
 		},
 		{
-			Key: "config_auto_ban_types", Label: "参与自动封禁的攻击类型", Type: luaTypeText, Group: groupAutoBan,
+			Key: "config_auto_ban_types", Label: "参与自动封禁的攻击类型", Type: luaTypeText, Group: groupBase,
 			Desc: "逗号分隔的攻击类型白名单，例如 sql注入,cc攻击；留空表示所有类型都参与计数",
 		},
 		{
-			Key: "config_auto_ban_expire", Label: "封禁时长（秒）", Type: luaTypeNumber, Group: groupAutoBan,
+			Key: "config_auto_ban_expire", Label: "封禁时长（秒）", Type: luaTypeNumber, Group: groupBase,
 			Min: 0, Max: 86400, Desc: "自动封禁的有效期，0 表示不封禁（仅计数）",
 		},
 
 		// ---------- 目录 ----------
 		{
-			Key: "config_rule_dir", Label: "规则目录", Type: luaTypeText, Group: groupPath,
+			Key: "config_rule_dir", Label: "规则目录", Type: luaTypeText, Group: groupBase,
 			Desc: "lua 侧读取 *.rule 的目录，须与后台「系统设置 → 运行配置 → RULE_PATH」一致",
 		},
 		{
-			Key: "config_log_dir", Label: "日志目录", Type: luaTypeText, Group: groupPath,
+			Key: "config_log_dir", Label: "日志目录", Type: luaTypeText, Group: groupBase,
 			Desc: "file 模式下的日志写入目录，须与后台「运行配置 → LOG_DIR」一致",
 		},
 
-		// ---------- 日志输出：只保留模式选择（落库交给后台 wafadmin 消费） ----------
+		// ---------- 日志输出（并入 Redis 队列参数） ----------
 		{
 			Key: "config_log_mode", Label: "日志输出模式", Type: luaTypeSelect, Group: groupLog,
 			Options: []string{"file", "redis"},
 			Desc:    "file=写本地日志文件；redis=写 Redis 队列，由后台 wafadmin 消费入库（推荐；lua 侧不再直连 MySQL）",
 		},
 
-		// ---------- Redis 队列：写队列参数（消费在后台） ----------
-		{Key: "config_redis_host", Label: "主机", Type: luaTypeText, Group: groupRedis},
-		{Key: "config_redis_port", Label: "端口", Type: luaTypeNumber, Group: groupRedis, Min: 1, Max: 65535},
-		{Key: "config_redis_password", Label: "密码", Type: luaTypeSecret, Group: groupRedis,
+		// ---------- Redis 队列（并入「日志输出」选项卡） ----------
+		{Key: "config_redis_host", Label: "主机", Type: luaTypeText, Group: groupLog},
+		{Key: "config_redis_port", Label: "端口", Type: luaTypeNumber, Group: groupLog, Min: 1, Max: 65535},
+		{Key: "config_redis_password", Label: "密码", Type: luaTypeSecret, Group: groupLog,
 			Desc: "留空或保持脱敏值表示不修改"},
-		{Key: "config_redis_db", Label: "库号", Type: luaTypeNumber, Group: groupRedis, Min: 0, Max: 255},
+		{Key: "config_redis_db", Label: "库号", Type: luaTypeNumber, Group: groupLog, Min: 0, Max: 255},
 		{
-			Key: "config_redis_list_key", Label: "队列键名", Type: luaTypeText, Group: groupRedis,
+			Key: "config_redis_list_key", Label: "队列键名", Type: luaTypeText, Group: groupLog,
 			Desc: "须与后台 [log] REDIS_LIST_KEY 一致，否则后台消费不到日志",
 		},
 	}
