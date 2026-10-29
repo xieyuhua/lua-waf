@@ -25,6 +25,10 @@ type Store struct {
 	// Observer 用于采集后台自身的慢 SQL，可在装配后注入 Recorder。
 	Observer *sqlwatch.Observer
 
+	// Silent 为 true 时只打印 warn/error，屏蔽「表已存在、补充缺失列」这类结构同步日志。
+	// 供命令行子命令使用（否则输出会淹没自检报告本身）。
+	Silent bool
+
 	database string
 }
 
@@ -151,12 +155,12 @@ func (s *Store) ensureTables(engine *xorm.Engine, database config.Database) erro
 			return fmt.Errorf("检查表 %s 是否存在失败: %w", item.name, err)
 		}
 		if exists {
-			log.Printf("[info] 表 %s 已存在，跳过结构同步", item.name)
+			s.info("[info] 表 %s 已存在，跳过结构同步", item.name)
 			if database.AddMissingColumns {
 				if syncErr := engine.Sync(item.bean); syncErr != nil {
 					log.Printf("[warn] 表 %s 补充缺失列失败: %v", item.name, syncErr)
 				} else {
-					log.Printf("[info] 表 %s 已补充缺失列（只增不改）", item.name)
+					s.info("[info] 表 %s 已补充缺失列（只增不改）", item.name)
 				}
 			}
 			s.warnLegacyColumn(engine, item.name)
@@ -213,4 +217,12 @@ func (s *Store) Close() error {
 		return nil
 	}
 	return s.Engine.Close()
+}
+
+// info 打印信息级日志（Silent 模式下丢弃）。
+func (s *Store) info(format string, args ...any) {
+	if s.Silent {
+		return
+	}
+	log.Printf(format, args...)
 }

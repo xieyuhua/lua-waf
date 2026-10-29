@@ -106,7 +106,7 @@ func (r *Runner) withStore(configPath string, exec func(*app.Store, *config.Conf
 
 	open := r.OpenStore
 	if open == nil {
-		open = app.OpenStore
+		open = app.OpenStoreQuiet
 	}
 	store, err := open(cfg)
 	if err != nil {
