@@ -65,16 +65,6 @@ func (c *statsCache[T]) Set(key string, value T) {
 	c.entries[key] = statsCacheEntry[T]{value: value, at: time.Now()}
 }
 
-// Reset 清空缓存（配置变更或手动刷新时使用）。
-func (c *statsCache[T]) Reset() {
-	if c == nil {
-		return
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.entries = make(map[string]statsCacheEntry[T], 4)
-}
-
 // defaultStatsCacheTTL 为统计缓存的默认存活时间。
 // 45 秒：既能挡住"刷新页面/多人同时看"的重复计算，又不会让数据显得陈旧。
 const defaultStatsCacheTTL = 45 * time.Second

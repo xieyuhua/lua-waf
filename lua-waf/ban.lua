@@ -110,15 +110,6 @@ function _M.ban(ip, seconds, reason)
 end
 
 -- 解除封禁
-function _M.unban(ip)
-    local shared = dict()
-    if shared == nil or ip == nil or ip == "" then
-        return false
-    end
-    shared:delete("ban:" .. ip)
-    shared:delete("hit:" .. ip)
-    return true
-end
 
 -- 当前请求的 IP 是否处于封禁中
 function _M.currently_banned()
@@ -175,17 +166,5 @@ function _M.record(attack_type)
 end
 
 -- 当前计数与封禁状态（排障用）
-function _M.stats(ip)
-    local shared = dict()
-    if shared == nil then
-        return nil
-    end
-    local target = ip or client_ip()
-    return {
-        ip = target,
-        hits = shared:get("hit:" .. target) or 0,
-        banned = shared:get("ban:" .. target) ~= nil
-    }
-end
 
 return _M

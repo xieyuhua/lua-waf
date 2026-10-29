@@ -19,6 +19,3 @@ export const viewport = {
 }
 
 /** 组件内取用断点 */
-export function useBreakpoint() {
-  return viewport
-}

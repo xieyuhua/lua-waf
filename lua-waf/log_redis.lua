@@ -79,44 +79,6 @@ function _M.push(payload)
     return true
 end
 
--- 取出一批日志，返回已解码的记录表
-function _M.drain(limit)
-    local client, err = _M.connect()
-    if client == nil then
-        return nil, err
-    end
-
-    local records = {}
-    for _ = 1, limit do
-        local value, pop_err = client:lpop(_M.key())
-        if value == nil or value == false then
-            break
-        end
-        local record = cjson.decode(value)
-        if record ~= nil then
-            records[#records + 1] = record
-        else
-            -- 无法解析的脏数据直接丢弃，避免阻塞队列
-            ngx.log(ngx.WARN, "[waf] Redis 中存在无法解析的日志数据")
-        end
-        if pop_err ~= nil then
-            break
-        end
-    end
-
-    client:set_keepalive(10000, 100)
-    return records
-end
-
 -- 队列当前长度（排障用）
-function _M.length()
-    local client, err = _M.connect()
-    if client == nil then
-        return nil, err
-    end
-    local length = client:llen(_M.key())
-    client:set_keepalive(10000, 100)
-    return length
-end
 
 return _M

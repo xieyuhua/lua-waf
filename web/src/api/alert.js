@@ -10,5 +10,3 @@ export const alertApi = {
   /** 发送测试消息（可传临时 webhook） */
   test: (payload) => api.post('/alert/test', payload ?? {})
 }
-
-export default alertApi

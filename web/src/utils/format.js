@@ -12,14 +12,6 @@ export function formatTime(value) {
 }
 
 /** 仅日期 */
-export function formatDate(value) {
-  if (!value) return '-'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime()) || date.getFullYear() < 2000) return '-'
-  const pad = (num) => String(num).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-}
-
 /** 把 Date 转为后端可解析的 "YYYY-MM-DD HH:mm:ss" */
 export function toBackendTime(value) {
   if (!value) return ''

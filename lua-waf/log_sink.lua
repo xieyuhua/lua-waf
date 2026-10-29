@@ -168,16 +168,4 @@ function _M.write(record)
     _M.write_file(normalized)
 end
 
--- 读取计数器（调试用；无共享内存时返回 nil）
-function _M.stats()
-    local meta = ngx.shared["waf_log_meta"]
-    if meta == nil then
-        return nil
-    end
-    return {
-        inserted = meta:get("inserted") or 0,
-        failed = meta:get("failed") or 0
-    }
-end
-
 return _M

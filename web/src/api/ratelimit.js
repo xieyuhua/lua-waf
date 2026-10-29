@@ -16,5 +16,3 @@ export const rateLimitApi = {
   /** 重新下发规则文件（rules/ratelimit.rule） */
   sync: () => api.post('/ratelimit/sync')
 }
-
-export default rateLimitApi
